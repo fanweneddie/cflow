@@ -56,9 +56,11 @@ public class PathVisitor {
         boolean isEndPoint = true;
         Stmt currStmt = t.getStmt();
         ArrayList<Taint> successors = new ArrayList<>(t.getSuccessors());
-        successors.sort(Comparator.comparing(Taint::toString));
+        successors.sort(Comparator.comparing(Taint::toString).thenComparing(Taint::getCount));
         for (Taint successor : successors) {
-            if (t.getTransferType() == Taint.TransferType.Call) {
+            Taint.TransferType transferType = t.getTransferType();
+            if (transferType == Taint.TransferType.Call_baseObject
+                    || transferType == Taint.TransferType.Call_parameter) {
                 // Visit callee
                 SootMethod callee = successor.getMethod();
                 if (!methodSet.contains(callee)) {
