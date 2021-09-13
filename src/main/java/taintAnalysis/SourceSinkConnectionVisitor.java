@@ -65,11 +65,12 @@ public class SourceSinkConnectionVisitor implements Callable<Object> {
         }
 
         boolean isEndPoint = true;
-        Stmt currStmt = t.getStmt();
+        Stmt currStmt = t.getUniqueStmt().getStmt();
         ArrayList<Taint> successors = new ArrayList<>(t.getSuccessors());
-        successors.sort(Comparator.comparing(Taint::toString));
+        successors.sort(Comparator.comparing(Taint::toString).thenComparing(Taint::getCount));
         for (Taint successor : successors) {
-            if (t.getTransferType() == Taint.TransferType.Call) {
+            if ( t.getTransferType() == Taint.TransferType.Call_baseObject
+                    || t.getTransferType() == Taint.TransferType.Call_parameter ) {
                 // Visit callee
                 SootMethod callee = successor.getMethod();
                 if (!methodSet.contains(callee)) {
@@ -88,7 +89,7 @@ public class SourceSinkConnectionVisitor implements Callable<Object> {
                 if (!callerStack.isEmpty()) {
                     // Return to the previous callee
                     Stmt callSite = callerStack.peek();
-                    if (callSite == successor.getStmt()) {
+                    if (callSite == successor.getUniqueStmt().getStmt()) {
                         callerStack.pop();
                         methodSet.remove(callee);
                         visitedStack.pop();
