@@ -78,12 +78,15 @@ public class InterAnalysisTransformer extends SceneTransformer {
                List<List<Taint>> paths = pathsMap.get(source);
                for (List<Taint> path : paths) {
                    System.out.println("-- Sink " + path.get(path.size() - 1) + " along:");
+                   String indent = "";
+                   /*
                    for (Taint t : path) {
                        if (t.getStmt() instanceof PhantomIdentityStmt ||
                                t.getStmt() instanceof PhantomRetStmt)
                            continue;
-                       System.out.println("    -> " + t);
+                       System.out.println("    -> " + t.toString());
                    }
+                    */
                    System.out.println();
                }
                System.out.println();
