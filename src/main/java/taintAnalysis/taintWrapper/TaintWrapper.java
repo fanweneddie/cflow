@@ -19,6 +19,7 @@ import soot.jimple.InstanceInvokeExpr;
 import soot.jimple.InvokeExpr;
 import soot.jimple.Stmt;
 import taintAnalysis.Taint;
+import taintAnalysis.UniqueStmt;
 
 import static assertion.Assert.assertNotNull;
 import static assertion.Assert.assertTrue;
@@ -130,9 +131,10 @@ public class TaintWrapper implements ITaintWrapper {
     }
 
     @Override
-    public void genTaintsForMethodInternal(Set<Taint> in, Stmt stmt, SootMethod caller,
+    public void genTaintsForMethodInternal(Set<Taint> in, UniqueStmt uniqueStmt, SootMethod caller,
                                            Set<Taint> killSet, Set<Taint> genSet,
                                            Map<Taint, Taint> taintCache) {
+        Stmt stmt = uniqueStmt.getStmt();
         assertTrue(stmt.containsInvokeExpr());
         InvokeExpr invoke = stmt.getInvokeExpr();
         SootMethod callee = invoke.getMethod();
@@ -186,7 +188,7 @@ public class TaintWrapper implements ITaintWrapper {
                     if (t.taints(base)) {
                         killSet.add(t);
                     }
-                    Taint newTaint = Taint.getTaintFor(t, base, stmt, caller, taintCache);
+                    Taint newTaint = Taint.getTaintFor(t, base, uniqueStmt, caller, taintCache);
                     genSet.add(newTaint);
                 }
 
@@ -194,7 +196,7 @@ public class TaintWrapper implements ITaintWrapper {
                 if (retVal != null && (baseTainted ||
                         wrapType == MethodWrapType.TaintBoth ||
                         wrapType == MethodWrapType.TaintReturn)) {
-                    Taint newTaint = Taint.getTaintFor(t, retVal, stmt, caller, taintCache);
+                    Taint newTaint = Taint.getTaintFor(t, retVal, uniqueStmt, caller, taintCache);
                     genSet.add(newTaint);
                 }
             }
