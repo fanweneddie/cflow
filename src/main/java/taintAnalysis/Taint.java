@@ -148,7 +148,7 @@ public class Taint {
     /**
      * Shows whether this taint taints expression e
      * @param e         the expression to be checked,
-     *                  which can be operated by binary, unary, cast and instanceOf operator
+     *                  which can be operated by binary, unary, cast and instanceof operator
      * @return          true iff this taint taints expression e
      */
     private boolean taints(Expr e) {
@@ -259,6 +259,10 @@ public class Taint {
         return uniqueStmt;
     }
 
+    public Stmt getStmt() { return uniqueStmt.getStmt(); }
+
+    public int getCount() { return uniqueStmt.getCount(); }
+
     public SootMethod getMethod() {
         return method;
     }
@@ -288,11 +292,11 @@ public class Taint {
         if (isEmpty()) return "Empty Taint";
 
         String str = "";
-        if (transferType != TransferType.None) {
-            str += "[" + transferType + "] ";
-        }
+        //if (transferType != TransferType.None) {
+            //str += "[" + transferType + "] ";
+        //}
         str += plainValue + (field != null ? "." + field : "") +
-                " in " + uniqueStmt + " in method " + method;
+                " in " + uniqueStmt.getStmt() + " in method " + method;
 
         return str;
     }
@@ -300,26 +304,27 @@ public class Taint {
     /**
      * a new way of showing a taint in string(in order to debug)
      * The form of a taint is shown below:
-     * indent   object: xxx
-     *          type:           by:
+     * indent   object:
+     *          transfertype:
      *          statement:      count:
      *          method:
      *
-     * @param indent: the indent to show the relation of activation record.
+     * @param indent: the indent to show the relation in activation record.
      *
      * @return
      */
     public String toStringNew(String indent) {
         if (isEmpty()) return indent + "Empty Taint";
 
-        String str = indent;
-        if (transferType != TransferType.None) {
-            str += "[" + transferType + "] ";
-        }
-
-        str += plainValue + (field != null ? "." + field : "") +
-                " in " + uniqueStmt + ") in method " + method;
-
+        String str = "";
+        // line 1: shows the object of the taint
+        str = indent + "Object: " + plainValue + (field != null ? "." + field : "") + "\n";
+        // line 2: shows the transferType of the taint
+        str += indent + "Type:  " + transferType + "\n";
+        // line 3: shows the stmt and count of the uniqueStmt of taint
+        str += indent + "Stmt:  " + uniqueStmt.getStmt() + " at " + uniqueStmt.getCount() + "\n";
+        // line 4: shows the method of the taint
+        str += indent + "Method: " + method;
         return str;
     }
 
