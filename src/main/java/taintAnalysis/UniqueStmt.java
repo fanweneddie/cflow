@@ -4,7 +4,7 @@ import soot.jimple.Stmt;
 import java.util.Objects;
 
 /**
- * I encapsulate a soot stmt with its count as UniqueStmt,
+ * This encapsulates a Soot stmt with its count as UniqueStmt,
  * in order to make it unique
  */
 public class UniqueStmt {
