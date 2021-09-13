@@ -3,6 +3,7 @@ package taintAnalysis;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import soot.*;
+import soot.jimple.Stmt;
 import taintAnalysis.sourceSinkManager.ISourceSinkManager;
 import taintAnalysis.taintWrapper.ITaintWrapper;
 
@@ -46,6 +47,11 @@ public class InterTaintAnalysis {
 
         logger.info("Num of methods: {}", methodList.size());
 
+        // the data structures for UniqueStmt in interprocedural analysis
+        Map<String,Integer> stmtStrCounter = new HashMap<>();
+        Map<Stmt, Integer> countedStmtCache = new HashMap<>();
+        Map<UniqueStmt, UniqueStmt> uniqueStmtCache = new HashMap<>();
+
         // Bootstrap
         int iter = 1;
         logger.info("iter {}", iter);
@@ -56,7 +62,7 @@ public class InterTaintAnalysis {
         }
         for (Body b : bodyList) {
             TaintFlowAnalysis analysis = new TaintFlowAnalysis(b, sourceSinkManager, Taint.getEmptyTaint(),
-                    methodSummary, methodTaintCache, taintWrapper);
+                    methodSummary, methodTaintCache, taintWrapper, stmtStrCounter, countedStmtCache, uniqueStmtCache);
             analysis.doAnalysis();
             sources.addAll(analysis.getSources());
         }
@@ -73,7 +79,7 @@ public class InterTaintAnalysis {
                 entryTaints.addAll(methodSummary.get(sm).keySet());
                 for (Taint entryTaint : entryTaints) {
                     TaintFlowAnalysis analysis = new TaintFlowAnalysis(b, sourceSinkManager, entryTaint,
-                            methodSummary, methodTaintCache, taintWrapper);
+                            methodSummary, methodTaintCache, taintWrapper, stmtStrCounter, countedStmtCache, uniqueStmtCache);
                     analysis.doAnalysis();
                     sinks.addAll(analysis.getSinks());
                     changed |= analysis.isChanged();
