@@ -78,15 +78,22 @@ public class InterAnalysisTransformer extends SceneTransformer {
                List<List<Taint>> paths = pathsMap.get(source);
                for (List<Taint> path : paths) {
                    System.out.println("-- Sink " + path.get(path.size() - 1) + " along:");
-                   String indent = "";
-                   /*
+                   // get the original indent
+                   StringBuilder indent = new StringBuilder(calculateIndent(path));
                    for (Taint t : path) {
                        if (t.getStmt() instanceof PhantomIdentityStmt ||
                                t.getStmt() instanceof PhantomRetStmt)
                            continue;
-                       System.out.println("    -> " + t.toString());
+                        // change the indent if there is method return
+                       if (t.isAtReturnSite()) {
+                           int end = indent.length();
+                           indent.delete(end - 2, end);
+                       }
+                       System.out.println("    -> " + new String(indent) + t.toString());
+                       // change the indent if there is method call
+                       if (t.isAtCallSite())
+                           indent.append("##");
                    }
-                    */
                    System.out.println();
                }
                System.out.println();
@@ -98,4 +105,36 @@ public class InterAnalysisTransformer extends SceneTransformer {
         return pathsMap;
     }
 
+    /**
+     * Calculate the initial indent of a taint propagation path for a clearer visualization
+     * @param path          the taint propagation path
+     * @return              the initial indent
+     */
+    private String calculateIndent(List<Taint> path) {
+        // stores taints at call site
+        Stack<Taint> callTaintStack = new Stack<>();
+        // stores taints at return site
+        Stack<Taint> returnTaintStack = new Stack<>();
+        // iterate over path, use two stacks to calculate the match of call and return
+        for (Taint t : path) {
+            if (t.isAtCallSite()) {
+                callTaintStack.push(t);
+            }
+            // when there comes a taint at return site, it can eliminate a stored taint at call site
+            else if (t.isAtReturnSite()) {
+                if (!callTaintStack.isEmpty()) {
+                    callTaintStack.pop();
+                }
+                else {
+                    returnTaintStack.push(t);
+                }
+            }
+        }
+        // get the indent finally
+        int indentDepth = returnTaintStack.size();
+        String indent = "";
+        for (int i = 0; i < indentDepth; ++i)
+            indent += "##";
+        return indent;
+    }
 }
