@@ -398,7 +398,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                     }
                 }
             }
-
+            
             // Compute GEN from the gathered summary info
             // Process base object
             if (base != null) {
@@ -467,7 +467,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         PhantomIdentityStmt phantomIdentityStmt = PhantomIdentityStmt.getInstance(callee);
         UniqueStmt uniquePhantomIdentityStmt = generateUniqueStmt(phantomIdentityStmt);
         Taint calleeTaint = Taint.getTransferredTaintFor(
-                callerTaint, calleeVal, uniquePhantomIdentityStmt, callee, calleeTaintCache, Taint.TransferType.None);
+                callerTaint, calleeVal, uniquePhantomIdentityStmt, callee, calleeTaintCache, Taint.TransferType.Identity);
 
         // Receive callee taint summary for the sent caller taint
         if (calleeSummary.containsKey(calleeTaint)) {
@@ -536,7 +536,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
             if (thiz != null && t.taints(thiz)) {
                 UniqueStmt uniquePhantomRetStmt = generateUniqueStmt(phantomRetStmt);
                 Taint newTaint = Taint.getTransferredTaintFor(
-                        t, t.getPlainValue(), uniquePhantomRetStmt, method, currTaintCache);
+                        t, t.getPlainValue(), uniquePhantomRetStmt, method, currTaintCache, Taint.TransferType.Return);
                 changed |= summary.get(0).add(newTaint);
             }
 
@@ -544,7 +544,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
             if (retVal != null && t.taints(retVal)) {
                 UniqueStmt uniquePhantomRetStmt = generateUniqueStmt(phantomRetStmt);
                 Taint newTaint = Taint.getTransferredTaintFor(
-                        t, t.getPlainValue(), uniquePhantomRetStmt, method, currTaintCache);
+                        t, t.getPlainValue(), uniquePhantomRetStmt, method, currTaintCache, Taint.TransferType.Return);
                 changed |= summary.get(1).add(newTaint);
             }
 
@@ -555,7 +555,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                 if (!(paramLocal.getType() instanceof PrimType) && t.taints(paramLocal)) {
                     UniqueStmt uniquePhantomRetStmt = generateUniqueStmt(phantomRetStmt);
                     Taint newTaint = Taint.getTransferredTaintFor(
-                            t, t.getPlainValue(), uniquePhantomRetStmt, method, currTaintCache);
+                            t, t.getPlainValue(), uniquePhantomRetStmt, method, currTaintCache, Taint.TransferType.Return);
                     changed |= summary.get(2 + i).add(newTaint);
                 }
             }
