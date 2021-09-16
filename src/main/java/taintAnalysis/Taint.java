@@ -26,6 +26,10 @@ public class Taint {
         Return_retVal,
         // by passing base object in method return
         Return_baseObject,
+        // by passing to identityStmt in callee
+        Identity,
+        // by passing to returnStmt in callee
+        Return,
         // default type
         None
     }
@@ -287,44 +291,30 @@ public class Taint {
         isSink = true;
     }
 
+    // check whether the taint is at call site
+    public boolean isAtCallSite() {
+        return transferType == TransferType.Call_baseObject ||
+                transferType == TransferType.Call_parameter;
+    }
+
+    // check whether the taint is at return site
+    public boolean isAtReturnSite() {
+        return transferType == TransferType.Return_baseObject ||
+                transferType == TransferType.Return_retVal ||
+                transferType == TransferType.Return_parameter;
+    }
+
     @Override
     public String toString() {
         if (isEmpty()) return "Empty Taint";
 
         String str = "";
-        //if (transferType != TransferType.None) {
-            //str += "[" + transferType + "] ";
-        //}
+        if (transferType != TransferType.None) {
+            str += "[" + transferType + "] ";
+        }
         str += plainValue + (field != null ? "." + field : "") +
-                " in " + uniqueStmt.getStmt() + " in method " + method;
+                " in " + uniqueStmt + " in method " + method;
 
-        return str;
-    }
-
-    /**
-     * a new way of showing a taint in string(in order to debug)
-     * The form of a taint is shown below:
-     * indent   object:
-     *          transfertype:
-     *          statement:      count:
-     *          method:
-     *
-     * @param indent: the indent to show the relation in activation record.
-     *
-     * @return
-     */
-    public String toStringNew(String indent) {
-        if (isEmpty()) return indent + "Empty Taint";
-
-        String str = "";
-        // line 1: shows the object of the taint
-        str = indent + "Object: " + plainValue + (field != null ? "." + field : "") + "\n";
-        // line 2: shows the transferType of the taint
-        str += indent + "Type:  " + transferType + "\n";
-        // line 3: shows the stmt and count of the uniqueStmt of taint
-        str += indent + "Stmt:  " + uniqueStmt.getStmt() + " at " + uniqueStmt.getCount() + "\n";
-        // line 4: shows the method of the taint
-        str += indent + "Method: " + method;
         return str;
     }
 
