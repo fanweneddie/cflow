@@ -89,7 +89,7 @@ public class InterAnalysisTransformer extends SceneTransformer {
                            int end = indent.length();
                            indent.delete(end - 2, end);
                        }
-                       System.out.println("    -> " + new String(indent) + t.toString());
+                       System.out.println("    -> " + new String(indent) + t);
                        // change the indent if there is method call
                        if (t.isAtCallSite())
                            indent.append("##");
