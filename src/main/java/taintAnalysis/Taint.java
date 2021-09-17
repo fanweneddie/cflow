@@ -312,6 +312,7 @@ public class Taint {
         if (transferType != TransferType.None) {
             str += "[" + transferType + "] ";
         }
+
         str += plainValue + (field != null ? "." + field : "") +
                 " in " + uniqueStmt + " in method " + method;
 
