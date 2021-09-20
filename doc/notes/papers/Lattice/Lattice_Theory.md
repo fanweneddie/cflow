@@ -160,7 +160,7 @@ Assume that $x$ is another fixed point.
 
 Since $\bot \sqsubseteq x$ and $f$ is monotone, we have $f(\bot) \sqsubseteq f(x) = x$. So we also have $f^2(\bot) =  f(f(\bot)) \sqsubseteq f(f(x)) = f(x) = x$. 
 
-By induction, we have $lfp(f) = f^k(\bot) \sqsubseteq x$. Therefore, $lfp(f)$ is a least fixed point.
+By induction, we have $f^k(\bot) \sqsubseteq x$. Therefore,  $f^k(\bot)$ is a least fixed point and the guess of $lfp(f) = f^k(\bot)$ is correct.
 
 
 
