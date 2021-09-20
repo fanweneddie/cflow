@@ -68,7 +68,7 @@ Note that lattice $L$ is not a map lattice(Although its elements are map), but i
 I set `abstractLoc` to describe the abstract location of an object. `abstractLoc` has field:
 
 * `method`: The method that the allocation site is in
-* `entryTaint`: The calling context of that method
+* `callString`: The calling context of that method($k$-limiting)
 * `allocStmt`: The allocation statement
 * `type`: the type of the object.
 
