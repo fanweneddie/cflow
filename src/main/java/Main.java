@@ -43,17 +43,28 @@ public class Main {
                 .hasArg(false)
                 .build();
 
+        /* a new option of running point-to analysis before this analysis */
+        Option optionPA = Option.builder(null)
+                .required(false)
+                .desc("Run points-to analysis(for precision)")
+                .longOpt("points-to")
+                .hasArg(false)
+                .build();
+
         Options options = new Options();
         options.addOption(optionApp);
         options.addOption(optionOutput);
         options.addOption(optionSpark);
         options.addOption(optionIntra);
+        options.addOption(optionPA);
 
         CommandLineParser parser = new DefaultParser();
         try {
             CommandLine commandLine = parser.parse(options, args);
             boolean use_spark = false;
             boolean run_intra = false;
+            /* whether to run points-to analysis */
+            boolean run_points_to = true;
 
             /* getting required parameters */
             /* getting option a */
@@ -83,15 +94,20 @@ public class Main {
                 /* getting option intra */
                 run_intra = true;
             }
+            if (commandLine.hasOption("points-to")) {
+                /* getting option points-to */
+                run_points_to = true;
+            }
 
-            run(considered, use_spark, run_intra);
+            run(considered, use_spark, run_intra, run_points_to);
         } catch (ParseException ex) {
             System.out.println(ex.getMessage());
             new HelpFormatter().printHelp("ccc", options);
         }
     }
 
-    private static void run(String[][] considered, boolean use_spark, boolean run_intra) throws IOException {
+    private static void run(String[][] considered, boolean use_spark,
+                            boolean run_intra, boolean run_points_to) throws IOException {
         List<String> srcPaths = new LinkedList<>();
         List<String> classPaths = new LinkedList<>();
         ConfigInterface configInterface = null;
@@ -109,7 +125,7 @@ public class Main {
         if (run_intra) {
             driver.runIntraTaintAnalysis(srcPaths, classPaths);
         } else {
-            driver.runInterTaintAnalysis(srcPaths, classPaths, use_spark);
+            driver.runInterTaintAnalysis(srcPaths, classPaths, use_spark, run_points_to);
         }
     }
 
