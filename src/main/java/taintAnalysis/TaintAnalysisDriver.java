@@ -56,10 +56,13 @@ public class TaintAnalysisDriver {
         return transformer;
     }
 
-    public InterAnalysisTransformer runInterTaintAnalysis(List<String> srcPaths, List<String> classPaths, boolean use_spark) {
+    public InterAnalysisTransformer runInterTaintAnalysis(List<String> srcPaths,
+                                                          List<String> classPaths,
+                                                          boolean use_spark, boolean run_points_to) {
         G.reset();
 
         String classPath = String.join(":", classPaths);
+
         String[] initArgs;
         if (use_spark) {
             initArgs = new String[]{
@@ -109,7 +112,8 @@ public class TaintAnalysisDriver {
         }
 
         PackManager.v().getPack("wjtp").add(
-                new Transform("wjtp.taintanalysis", new InterAnalysisTransformer(sourceSinkManager, taintWrapper)));
+                new Transform("wjtp.taintanalysis",
+                        new InterAnalysisTransformer(sourceSinkManager, taintWrapper, run_points_to)));
 
         soot.Main.main(sootArgs);
 
