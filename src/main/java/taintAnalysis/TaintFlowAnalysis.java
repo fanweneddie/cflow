@@ -4,6 +4,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import soot.*;
 import soot.jimple.*;
+import soot.jimple.internal.JIdentityStmt;
+import soot.jimple.internal.JInvokeStmt;
 import soot.jimple.toolkits.callgraph.CallGraph;
 import soot.jimple.toolkits.callgraph.Edge;
 import soot.toolkits.graph.ExceptionalUnitGraph;
@@ -55,12 +57,6 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
 
     /**
      * This constructor ignores the initialization of stmtStrCounter, countedStmtCache and uniqueStmtCache
-     * @param body
-     * @param sourceSinkManager
-     * @param entryTaint
-     * @param methodSummary
-     * @param methodTaintCache
-     * @param taintWrapper
      */
     public TaintFlowAnalysis(Body body,
                              ISourceSinkManager sourceSinkManager,
@@ -111,15 +107,6 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
 
     /**
      * The complete constructor
-     * @param body
-     * @param sourceSinkManager
-     * @param entryTaint
-     * @param methodSummary
-     * @param methodTaintCache
-     * @param taintWrapper
-     * @param stmtStrCounter
-     * @param countedStmtCache
-     * @param uniqueStmtCache
      */
     public TaintFlowAnalysis(Body body,
                              ISourceSinkManager sourceSinkManager,
@@ -204,11 +191,6 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
 
         if (stmt instanceof AssignStmt) {
             visitAssign(in, uniqueStmt, out);
-        }
-
-        // for implicit taint flow(by control flow)
-        if (stmt instanceof IfStmt) {
-            visitIf(in, uniqueStmt, out);
         }
 
         if (stmt instanceof InvokeStmt) {
@@ -307,6 +289,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         // Get all possible callees for this call site
         List<SootMethod> methods = new ArrayList<>();
         methods.add(calleeMethod);
+        // for spark, we don't need to consider polymorphism for this object
         if (cg != null) {
             for (Iterator<Edge> it = cg.edgesOutOf(stmt); it.hasNext(); ) {
                 Edge edge = it.next();
@@ -600,21 +583,19 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
     }
 
     /**
-     * Visit an if statement
-     * @param in
-     * @param uniqueStmt
-     * @param out
-     * to be continued...
+     * Initialize the in-set of taints for each node except the entry node
+     * @return      the initial in-set of taints
      */
-    private void visitIf(Set<Taint> in, UniqueStmt uniqueStmt, Set<Taint> out) {
-
-    }
-
     @Override
     protected Set<Taint> newInitialFlow() {
         return new HashSet<>();
     }
 
+    /**
+     * Initialize the in-set of taints at the entry node,
+     * which contains entryTaint passed to this TaintFlowAnalysis object
+     * @return      the in-set of taints
+     */
     @Override
     protected Set<Taint> entryInitialFlow() {
         Set<Taint> entryTaints = new HashSet<>();
@@ -624,6 +605,12 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         return entryTaints;
     }
 
+    /**
+     * Merge method as a meet operator, which is Union
+     * @param in1       one in-set of taints for a node
+     * @param in2       another in-set of taints for a node
+     * @param out       out-set of taints for a node
+     */
     @Override
     protected void merge(Set<Taint> in1, Set<Taint> in2, Set<Taint> out) {
         out.clear();
@@ -631,6 +618,11 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         out.addAll(in2);
     }
 
+    /**
+     * Copy source to destination
+     * @param source    source taint set
+     * @param dest      destination taint set
+     */
     @Override
     protected void copy(Set<Taint> source, Set<Taint> dest) {
         dest.clear();
