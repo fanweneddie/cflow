@@ -21,8 +21,8 @@ public class InterAnalysisTransformer extends SceneTransformer {
     private boolean printResults = true;
     private Map<Taint, List<List<Taint>>> pathsMap = new HashMap<>();
 
-    public InterAnalysisTransformer(ISourceSinkManager sourceSinkManager, ITaintWrapper taintWrapper) {
-        this.analysis = new InterTaintAnalysis(sourceSinkManager, taintWrapper);
+    public InterAnalysisTransformer(ISourceSinkManager sourceSinkManager, ITaintWrapper taintWrapper, boolean use_points_to) {
+        this.analysis = new InterTaintAnalysis(sourceSinkManager, taintWrapper, use_points_to);
     }
 
     public List<Taint> getSources() {
