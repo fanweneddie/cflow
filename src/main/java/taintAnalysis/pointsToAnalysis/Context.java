@@ -2,7 +2,6 @@ package taintAnalysis.pointsToAnalysis;
 
 import taintAnalysis.UniqueStmt;
 
-
 import java.util.*;
 
 /**
@@ -15,7 +14,9 @@ public class Context implements Cloneable {
     private final int callStringLen;
     // the string of call statements as a context
     private final Queue<UniqueStmt> callString;
-    // The points-to set of this object and arguments
+    // the size of summary
+    private int summarySize;
+    // the points-to set of this object and arguments
     // its size = number of arguments + 2
     private final List<Set<AbstractLoc>> summary;
 
@@ -31,7 +32,12 @@ public class Context implements Cloneable {
         this.callStringLen = callStringLen;
         // approximate callString with given callStringLen
         this.callString = approximateCallString(callString);
-        this.summary = new ArrayList<>(argNum + 2);
+        // initialize summary with empty set
+        this.summarySize = argNum + 2;
+        this.summary = new ArrayList<>(this.summarySize);
+        for( int i = 0; i < this.summarySize; ++i) {
+            summary.add(new HashSet<>());
+        }
     }
 
     @Override
@@ -56,7 +62,6 @@ public class Context implements Cloneable {
         while(newCallString.size() > callStringLen) {
             newCallString.remove();
         }
-
         return newCallString;
     }
 
@@ -77,6 +82,8 @@ public class Context implements Cloneable {
     public int getCallStringLen() { return callStringLen; }
 
     public Queue<UniqueStmt> getCallString() { return callString; }
+
+    public int getSummarySize() { return summarySize; }
 
     public List<Set<AbstractLoc>> getSummary() { return summary; }
 
