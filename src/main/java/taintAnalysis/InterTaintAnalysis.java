@@ -4,10 +4,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import soot.*;
 import soot.jimple.Stmt;
+import taintAnalysis.pointsToAnalysis.AbstractLoc;
+import taintAnalysis.pointsToAnalysis.PointsToAnalysis;
+import taintAnalysis.pointsToAnalysis.Context;
 import taintAnalysis.sourceSinkManager.ISourceSinkManager;
 import taintAnalysis.taintWrapper.ITaintWrapper;
 
 import java.util.*;
+import java.util.List;
 
 public class InterTaintAnalysis {
 
@@ -17,23 +21,34 @@ public class InterTaintAnalysis {
     private final ITaintWrapper taintWrapper;
     private final Set<Taint> sources;
     private final Set<Taint> sinks;
-    private final Map<SootMethod, Map<Taint, List<Set<Taint>>>> methodSummary;
+    // method summary for taint analysis
+    private final Map<SootMethod, Map<Taint, List<Set<Taint>>>> taintMethodSummary;
     private final Map<SootMethod, Map<Taint, Taint>> methodTaintCache;
+    // method summary for points-to analysis
+    private final Map<SootMethod, Map<Context, Map<UniqueStmt, Map<Value,Set<AbstractLoc>>>>> pointsToMethodSummary;
+    private final Map<SootMethod, Map<Context, List<Set<AbstractLoc>>>> finalMethodSummary;
+    // whether to use points-to analysis
+    private final boolean use_points_to;
 
-    public InterTaintAnalysis(ISourceSinkManager sourceSinkManager, ITaintWrapper taintWrapper) {
+    public InterTaintAnalysis(ISourceSinkManager sourceSinkManager, ITaintWrapper taintWrapper, boolean use_points_to) {
         this.sourceSinkManager = sourceSinkManager;
         this.taintWrapper = taintWrapper;
         this.sources = new HashSet<>();
         this.sinks = new HashSet<>();
-        this.methodSummary = new HashMap<>();
+        this.taintMethodSummary = new HashMap<>();
         this.methodTaintCache = new HashMap<>();
+        this.pointsToMethodSummary = new HashMap<>();
+        this.finalMethodSummary = new HashMap<>();
+        this.use_points_to = use_points_to;
     }
 
     public void doAnalysis() {
         this.sources.clear();
         this.sinks.clear();
-        this.methodSummary.clear();
+        this.taintMethodSummary.clear();
         this.methodTaintCache.clear();
+        this.pointsToMethodSummary.clear();
+        this.finalMethodSummary.clear();
 
         List<SootMethod> methodList = new ArrayList<>();
         for (SootClass sc : Scene.v().getApplicationClasses()) {
@@ -47,14 +62,79 @@ public class InterTaintAnalysis {
 
         logger.info("Num of methods: {}", methodList.size());
 
-        // the data structures for UniqueStmt in interprocedural analysis
+        // the data structures for UniqueStmt in inter-procedural analysis
         Map<String,Integer> stmtStrCounter = new HashMap<>();
         Map<Stmt, Integer> countedStmtCache = new HashMap<>();
         Map<UniqueStmt, UniqueStmt> uniqueStmtCache = new HashMap<>();
 
-        // Bootstrap
+        // Bootstrap for points-to analysis
+        if (use_points_to) {
+            startPointsToAnalysis(methodList, stmtStrCounter, countedStmtCache, uniqueStmtCache);
+        }
+        // Bootstrap for taint analysis
+        //startTaintAnalysis(methodList, stmtStrCounter, countedStmtCache, uniqueStmtCache);
+    }
+
+    /**
+     * Bootstrap for points-to analysis
+     * @param methodList            the list of method that we need to analyze
+     * @param stmtStrCounter        stores the overall count number of string of each statement
+     * @param countedStmtCache      stores the count id of string of each statement
+     * @param uniqueStmtCache       stores the generated UniqueStmt(in order to reduce repetitious object generation)
+     */
+    private void startPointsToAnalysis(List<SootMethod> methodList, Map<String,Integer> stmtStrCounter,
+                                       Map<Stmt, Integer> countedStmtCache, Map<UniqueStmt, UniqueStmt> uniqueStmtCache) {
+        int callStringLen = 5;
         int iter = 1;
-        logger.info("iter {}", iter);
+        logger.info("iter {} in points-to analysis", iter);
+        List<Body> bodyList = new ArrayList<>();
+        for (SootMethod sm : methodList) {
+            Body b = sm.retrieveActiveBody();
+            bodyList.add(b);
+        }
+        for (Body b : bodyList) {
+            int argNum = b.getMethod().getParameterCount();
+            Context context = new Context(callStringLen, new LinkedList<>(), argNum);
+            PointsToAnalysis analysis = new PointsToAnalysis(b, context, pointsToMethodSummary,
+                    finalMethodSummary, stmtStrCounter, countedStmtCache, uniqueStmtCache);
+            analysis.doAnalysis();
+        }
+        iter++;
+
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+            logger.info("iter {} in points-to analysis", iter);
+
+            for (SootMethod sm : methodList) {
+                Body b = sm.retrieveActiveBody();
+                Set<Context> contextSet = new HashSet<>();
+                contextSet.addAll(pointsToMethodSummary.get(sm).keySet());
+                for (Context context : contextSet) {
+                    PointsToAnalysis analysis = new PointsToAnalysis(b, context, pointsToMethodSummary,
+                            finalMethodSummary, stmtStrCounter, countedStmtCache, uniqueStmtCache);
+                    analysis.doAnalysis();
+                    changed |= analysis.isChanged();
+                }
+            }
+
+            iter++;
+        }
+
+        logger.info("Finished points-to analysis");
+    }
+
+    /**
+     * Bootstrap for taint analysis
+     * @param methodList            the list of method that we need to analyze
+     * @param stmtStrCounter        stores the overall count number of string of each statement
+     * @param countedStmtCache      stores the count id of string of each statement
+     * @param uniqueStmtCache       stores the generated UniqueStmt(in order to reduce repetitious object generation)
+     */
+    private void startTaintAnalysis(List<SootMethod> methodList, Map<String,Integer> stmtStrCounter,
+                                    Map<Stmt, Integer> countedStmtCache, Map<UniqueStmt, UniqueStmt> uniqueStmtCache) {
+        int iter = 1;
+        logger.info("iter {} in taint analysis", iter);
         List<Body> bodyList = new ArrayList<>();
         for (SootMethod sm : methodList) {
             Body b = sm.retrieveActiveBody();
@@ -62,7 +142,7 @@ public class InterTaintAnalysis {
         }
         for (Body b : bodyList) {
             TaintFlowAnalysis analysis = new TaintFlowAnalysis(b, sourceSinkManager, Taint.getEmptyTaint(),
-                    methodSummary, methodTaintCache, taintWrapper, stmtStrCounter, countedStmtCache, uniqueStmtCache);
+                    taintMethodSummary, methodTaintCache, taintWrapper, stmtStrCounter, countedStmtCache, uniqueStmtCache);
             analysis.doAnalysis();
             sources.addAll(analysis.getSources());
         }
@@ -71,15 +151,15 @@ public class InterTaintAnalysis {
         boolean changed = true;
         while (changed) {
             changed = false;
-            logger.info("iter {}", iter);
+            logger.info("iter {} in taint analysis", iter);
 
             for (SootMethod sm : methodList) {
                 Body b = sm.retrieveActiveBody();
                 Set<Taint> entryTaints = new HashSet<>();
-                entryTaints.addAll(methodSummary.get(sm).keySet());
+                entryTaints.addAll(taintMethodSummary.get(sm).keySet());
                 for (Taint entryTaint : entryTaints) {
                     TaintFlowAnalysis analysis = new TaintFlowAnalysis(b, sourceSinkManager, entryTaint,
-                            methodSummary, methodTaintCache, taintWrapper, stmtStrCounter, countedStmtCache, uniqueStmtCache);
+                            taintMethodSummary, methodTaintCache, taintWrapper, stmtStrCounter, countedStmtCache, uniqueStmtCache);
                     analysis.doAnalysis();
                     sinks.addAll(analysis.getSinks());
                     changed |= analysis.isChanged();
@@ -105,11 +185,19 @@ public class InterTaintAnalysis {
     }
 
     public Map<SootMethod, Map<Taint, List<Set<Taint>>>> getMethodSummary() {
-        return methodSummary;
+        return taintMethodSummary;
     }
 
     public Map<SootMethod, Map<Taint, Taint>> getMethodTaintCache() {
         return methodTaintCache;
+    }
+
+    public Map<SootMethod, Map<Context, Map<UniqueStmt, Map<Value,Set<AbstractLoc>>>>> getPointsToMethodSummary() {
+        return pointsToMethodSummary;
+    }
+
+    public Map<SootMethod, Map<Context, List<Set<AbstractLoc>>>> getFinalMethodSummary() {
+        return finalMethodSummary;
     }
 
 }
