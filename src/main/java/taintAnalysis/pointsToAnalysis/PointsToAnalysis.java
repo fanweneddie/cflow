@@ -33,7 +33,6 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Set<A
 
     private static final CallGraph cg = Scene.v().hasCallGraph() ? Scene.v().getCallGraph() : null;
 
-    private boolean changed = false;
     private final Body body;
     private final SootMethod method;
     private final PhantomRetStmt phantomRetStmt;
@@ -62,6 +61,8 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Set<A
     private final Map<Stmt, Integer> countedStmtCache;
     // stores the generated UniqueStmt(in order to reduce repetitious object generation)
     private final Map<UniqueStmt, UniqueStmt> uniqueStmtCache;
+    // stores visited method
+    private final Set<SootMethod> visitedMethods;
 
     /* The complete constructor
     *  we need to pass the callStringLen as a config
@@ -71,7 +72,7 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Set<A
                             Map<SootMethod, Map<Context, Map<UniqueStmt, Map<Value,Set<AbstractLoc>>>>> methodSummary,
                             Map<SootMethod, Map<Context, List<Set<AbstractLoc>>>> finalMethodSummary,
                             Map<String, Integer> stmtStrCounter, Map<Stmt, Integer> countedStmtCache,
-                            Map<UniqueStmt, UniqueStmt> uniqueStmtCache) {
+                            Map<UniqueStmt, UniqueStmt> uniqueStmtCache, Set<SootMethod> visitedMethods) {
         super(new ExceptionalUnitGraph(body));
         this.body = body;
         this.method = body.getMethod();
@@ -79,19 +80,21 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Set<A
 
         this.context = context;
         this.methodSummary = methodSummary;
-        int summarySize = this.context.getSummarySize();
+        int summarySize = this.context.getSummary().size();
         this.specialVarList = new ArrayList<>(summarySize);
         this.finalMethodSummary = finalMethodSummary;
 
         this.stmtStrCounter = stmtStrCounter;
         this.countedStmtCache = countedStmtCache;
         this.uniqueStmtCache = uniqueStmtCache;
+        this.visitedMethods = visitedMethods;
 
         // Sanity check
         assertNotNull(body);
         assertNotNull(context);
         assertNotNull(methodSummary);
         assertNotNull(finalMethodSummary);
+        assertNotNull(visitedMethods);
 
         // Initialize methodSummary for current method with context (if not done yet)
         this.methodSummary.putIfAbsent(method, new HashMap<>());
@@ -142,18 +145,19 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Set<A
         currMethodSummary.putIfAbsent(uniqueStmt, new HashMap<>());
 
         // (strong) update in-set to currMethodSummary
+        currMethodSummary.get(uniqueStmt).clear();
         currMethodSummary.get(uniqueStmt).putAll(in);
 
         // check whether the statement is an identity statement at the start of this method
         if (stmt instanceof JIdentityStmt) {
             visitIdentity(uniqueStmt);
         }
-        // check whether the stmt is a new(init) statement or a normal assignment statement
+        // check whether the stmt is a new statement or a normal assignment statement
         else if (stmt instanceof AssignStmt) {
             AssignStmt assignStmt = (AssignStmt) stmt;
             Value rightOp = assignStmt.getRightOp();
             assertNotNull(rightOp);
-            // new(init) statement
+            // new statement
             if (rightOp instanceof JNewExpr) {
                 visitNew(uniqueStmt);
             }
@@ -163,11 +167,18 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Set<A
             }
         }
         // the statement is an invoke statement,
-        // pass the points-to set of this object, return value and parameters
+        // if it is an init invoke statement of Object, then we allocate an object
+        // else, we pass the points-to set of this object, return value and parameters
         else if (stmt instanceof InvokeStmt) {
-            InvokeExpr invoke = stmt.getInvokeExpr();
-            assertNotNull(invoke);
-            visitInvoke(uniqueStmt, invoke);
+            // init invoke statement of Object
+            if (stmt.toString().contains("<java.lang.Object: void <init>()>()")) {
+                visitAlloc(uniqueStmt);
+            }
+            // normal invoke statement
+            else {
+                InvokeExpr invoke = stmt.getInvokeExpr();
+                visitInvoke(uniqueStmt, invoke);
+            }
         }
         // the statement is a return statement,
         // record the points-to set of this object, return value and parameters into summary
@@ -227,17 +238,8 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Set<A
         // get the variable that refers to the new object
         Value leftOp = assignStmt.getLeftOp();
 
-        // get the type of new object
-        Value rightOp = assignStmt.getRightOp();
-        Type objectType = rightOp.getType();
-
-        // allocate a new heap location
-        AbstractLoc newLoc = new AbstractLoc(method, context, uniqueStmt, objectType);
-        Set<AbstractLoc> abstractLocs = new HashSet<>();
-        abstractLocs.add(newLoc);
-
-        // strong update: use {newLoc} to replace the original points-to set of leftOp,
-        currMethodSummary.get(uniqueStmt).put(leftOp, abstractLocs);
+        // set its points-to set as empty
+        currMethodSummary.get(uniqueStmt).put(leftOp, new HashSet<>());
     }
 
     /**
@@ -265,7 +267,7 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Set<A
         else {
             // record the abstractLoc of rightOp if it is a constant
             if (rightOp instanceof Constant) {
-                AbstractLoc abstractLoc = new AbstractLoc(rightOp.getType(), rightOp);
+                AbstractLoc abstractLoc = new AbstractLoc(rightOp);
                 if (currMethodSummary.get(uniqueStmt).containsKey(rightOp)) {
                     currMethodSummary.get(uniqueStmt).get(rightOp).add(abstractLoc);
                 } else {
@@ -283,6 +285,40 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Set<A
             }
             currMethodSummary.get(uniqueStmt).put(leftOp, rightOpPts);
         }
+    }
+
+    /**
+     * Visit an init invoke statement of Object
+     * and we will allocate a location for a variable
+     * @param uniqueStmt    the current new(init) statement
+     */
+    private void visitAlloc(UniqueStmt uniqueStmt) {
+
+        // get the current new(init) statement
+        Stmt stmt = uniqueStmt.getStmt();
+        InvokeStmt invokeStmt = (InvokeStmt) stmt;
+        InvokeExpr invoke = invokeStmt.getInvokeExpr();
+        assertNotNull(invoke);
+        // we must make sure that base object exists
+        assert(invoke instanceof InstanceInvokeExpr);
+        Value base = ((InstanceInvokeExpr) invoke).getBase();
+
+        // allocate a new heap location for base
+        Type objectType = base.getType();
+        AbstractLoc newLoc = new AbstractLoc(method, context, uniqueStmt, objectType);
+        Set<AbstractLoc> abstractLocs = new HashSet<>();
+        abstractLocs.add(newLoc);
+
+        // check whether it is in an init method
+        // (because in an init method, firstly we have r0 = @this, then we have r0.<Object init>
+        // so we should also record the points-to set of this object
+        if (currMethodSummary.get(uniqueStmt).get(base) == context.getSummary().get(0)) {
+            Value thiz = body.getThisLocal();
+            currMethodSummary.get(uniqueStmt).put(thiz, abstractLocs);
+        }
+
+        // strong update: use {newLoc} to replace the original points-to set of leftOp,
+        currMethodSummary.get(uniqueStmt).put(base, abstractLocs);
     }
 
     /**
@@ -335,7 +371,7 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Set<A
             Value arg = invoke.getArg(i);
             // record the abstractLoc of arg if it is a constant
             if (arg instanceof Constant) {
-                AbstractLoc abstractLoc = new AbstractLoc(arg.getType(), arg);
+                AbstractLoc abstractLoc = new AbstractLoc(arg);
                 if (currMethodSummary.get(uniqueStmt).containsKey(arg)) {
                     currMethodSummary.get(uniqueStmt).get(arg).add(abstractLoc);
                 } else {
@@ -350,9 +386,25 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Set<A
         // record newContext into calleeSummary
         calleeSummary.putIfAbsent(newContext, new HashMap<>());
 
-        // update finalMethodSummary for calleeMethod
+        // update methodSummary and finalMethodSummary for calleeMethod
+        methodSummary.putIfAbsent(calleeMethod, new HashMap<>());
+        methodSummary.get(calleeMethod).putIfAbsent(newContext, new HashMap<>());
         finalMethodSummary.putIfAbsent(calleeMethod, new HashMap<>());
         finalMethodSummary.get(calleeMethod).putIfAbsent(newContext, newContext.getSummary());
+
+        // analyze callee method directly(if possible)
+        // we use visitedMethod to check whether the invoke is recursive
+        // we don't analyze recursive call
+        if (calleeMethod.isConcrete() && method.getDeclaringClass().isApplicationClass()
+                && !visitedMethods.contains(method)) {
+            Body calleeBody = calleeMethod.retrieveActiveBody();
+            assertNotNull(calleeBody);
+            visitedMethods.add(method);
+            PointsToAnalysis analysis = new PointsToAnalysis(calleeBody, newContext, methodSummary,
+                    finalMethodSummary, stmtStrCounter, countedStmtCache, uniqueStmtCache, visitedMethods);
+            analysis.doAnalysis();
+            visitedMethods.remove(method);
+        }
 
         // pass the points-to set of this object, return value and arguments
         // from callee summary to this summary
@@ -389,7 +441,6 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Set<A
         if (thiz != null) {
             Set<AbstractLoc> thisPts = currMethodSummary.get(uniqueStmt).get(thiz);
             currFinalMethodSummary.set(0, thisPts);
-            changed |= contextSummary.get(0).equals(thisPts);
         }
         // this object is not used in the method, so pass its summary on
         else {
@@ -403,7 +454,7 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Set<A
             specialVarList.set(1, retVal);
             // record the abstractLoc of return value if it is a constant
             if (retVal instanceof Constant) {
-                AbstractLoc abstractLoc = new AbstractLoc(retVal.getType(), retVal);
+                AbstractLoc abstractLoc = new AbstractLoc(retVal);
                 if (currMethodSummary.get(uniqueStmt).containsKey(retVal)) {
                     currMethodSummary.get(uniqueStmt).get(retVal).add(abstractLoc);
                 } else {
@@ -415,18 +466,16 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Set<A
 
             Set<AbstractLoc> retValPts = currMethodSummary.get(uniqueStmt).get(retVal);
             currFinalMethodSummary.set(1, retValPts);
-            changed |= contextSummary.get(1).equals(retValPts);
         }
 
         // 3. record the points-to set of arguments and check whether change occurs
-        int argNum = context.getSummarySize() - 2;
+        int argNum = context.getSummary().size() - 2;
         for(int i = 0; i < argNum; ++i) {
             Value arg = specialVarList.get(i + 2);
             // arg is used in the method
             if (arg != null) {
                 Set<AbstractLoc> argPts = currMethodSummary.get(uniqueStmt).get(arg);
                 currFinalMethodSummary.set(i + 2, argPts);
-                changed |= contextSummary.get(i + 2).equals(argPts);
             }
             // arg is not used in the method
             else {
@@ -487,15 +536,16 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Set<A
      * @return              a new context for callee method
      */
     private Context generateNewContext(UniqueStmt uniqueStmt, int argNum) {
-        // get the basic info of callString
+        // get the basic info of callString and create a new callString
         int callStringLen = context.getCallStringLen();
-        Queue<UniqueStmt> callString = context.getCallString();
+        Queue<UniqueStmt> newCallString = new LinkedList<>();
+        newCallString.addAll(context.getCallString());
 
-        // add the current call site into the callString
-        callString.add(uniqueStmt);
+        // add the current call site into the NEW callString
+        newCallString.add(uniqueStmt);
 
-        // construct a new context, whose summary is empty(of course, capacity is set)
-        Context newContext = new Context(callStringLen, callString, argNum);
+        // construct a new context, whose summary is empty
+        Context newContext = new Context(callStringLen, newCallString, argNum);
         return newContext;
     }
 
@@ -551,10 +601,6 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Set<A
         }
 
         return uniqueStmt;
-    }
-
-    public boolean isChanged() {
-        return changed;
     }
 
 }
