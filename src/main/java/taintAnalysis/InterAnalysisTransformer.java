@@ -4,6 +4,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import soot.SceneTransformer;
 import soot.SootMethod;
+import soot.Value;
+import taintAnalysis.pointsToAnalysis.AbstractLoc;
+import taintAnalysis.pointsToAnalysis.Context;
 import taintAnalysis.sourceSinkManager.ISourceSinkManager;
 import taintAnalysis.taintWrapper.ITaintWrapper;
 import taintAnalysis.utility.PhantomIdentityStmt;
@@ -35,6 +38,14 @@ public class InterAnalysisTransformer extends SceneTransformer {
 
     public Map<SootMethod, Map<Taint, Taint>> getMethodTaintCache() {
         return analysis.getMethodTaintCache();
+    }
+
+    public Map<SootMethod, Map<Context, Map<UniqueStmt, Map<Value,Set<AbstractLoc>>>>> getPointsToMethodSummary() {
+        return analysis.getPointsToMethodSummary();
+    }
+
+    public Map<SootMethod, Map<Context, List<Set<AbstractLoc>>>> getFinalMethodSummary() {
+        return analysis.getFinalMethodSummary();
     }
 
     @Override
