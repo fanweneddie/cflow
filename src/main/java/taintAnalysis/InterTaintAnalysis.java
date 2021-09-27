@@ -84,41 +84,25 @@ public class InterTaintAnalysis {
      */
     private void startPointsToAnalysis(List<SootMethod> methodList, Map<String,Integer> stmtStrCounter,
                                        Map<Stmt, Integer> countedStmtCache, Map<UniqueStmt, UniqueStmt> uniqueStmtCache) {
+        logger.info("Start points-to analysis");
         int callStringLen = 5;
-        int iter = 1;
-        logger.info("iter {} in points-to analysis", iter);
+        // get the body of each method
         List<Body> bodyList = new ArrayList<>();
         for (SootMethod sm : methodList) {
             Body b = sm.retrieveActiveBody();
             bodyList.add(b);
         }
+
+        // only analyze main() method as an entry method
+        // if there is an invoke statement, we then recursively analyze callee method
         for (Body b : bodyList) {
-            int argNum = b.getMethod().getParameterCount();
-            Context context = new Context(callStringLen, new LinkedList<>(), argNum);
-            PointsToAnalysis analysis = new PointsToAnalysis(b, context, pointsToMethodSummary,
-                    finalMethodSummary, stmtStrCounter, countedStmtCache, uniqueStmtCache);
-            analysis.doAnalysis();
-        }
-        iter++;
-
-        boolean changed = true;
-        while (changed) {
-            changed = false;
-            logger.info("iter {} in points-to analysis", iter);
-
-            for (SootMethod sm : methodList) {
-                Body b = sm.retrieveActiveBody();
-                Set<Context> contextSet = new HashSet<>();
-                contextSet.addAll(pointsToMethodSummary.get(sm).keySet());
-                for (Context context : contextSet) {
-                    PointsToAnalysis analysis = new PointsToAnalysis(b, context, pointsToMethodSummary,
-                            finalMethodSummary, stmtStrCounter, countedStmtCache, uniqueStmtCache);
-                    analysis.doAnalysis();
-                    changed |= analysis.isChanged();
-                }
+            if (b.getMethod().toString().contains("void main(java.lang.String[])")) {
+                int argNum = b.getMethod().getParameterCount();
+                Context context = new Context(callStringLen, new LinkedList<>(), argNum);
+                PointsToAnalysis analysis = new PointsToAnalysis(b, context, pointsToMethodSummary,
+                        finalMethodSummary, stmtStrCounter, countedStmtCache, uniqueStmtCache, new HashSet<>());
+                analysis.doAnalysis();
             }
-
-            iter++;
         }
 
         logger.info("Finished points-to analysis");
