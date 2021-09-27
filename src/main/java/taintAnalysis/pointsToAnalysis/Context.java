@@ -14,8 +14,6 @@ public class Context implements Cloneable {
     private final int callStringLen;
     // the string of call statements as a context
     private final Queue<UniqueStmt> callString;
-    // the size of summary
-    private int summarySize;
     // the points-to set of this object and arguments
     // its size = number of arguments + 2
     private final List<Set<AbstractLoc>> summary;
@@ -33,9 +31,9 @@ public class Context implements Cloneable {
         // approximate callString with given callStringLen
         this.callString = approximateCallString(callString);
         // initialize summary with empty set
-        this.summarySize = argNum + 2;
-        this.summary = new ArrayList<>(this.summarySize);
-        for( int i = 0; i < this.summarySize; ++i) {
+        int summarySize = argNum + 2;
+        this.summary = new ArrayList<>(summarySize);
+        for( int i = 0; i < summarySize; ++i) {
             summary.add(new HashSet<>());
         }
     }
@@ -82,8 +80,6 @@ public class Context implements Cloneable {
     public int getCallStringLen() { return callStringLen; }
 
     public Queue<UniqueStmt> getCallString() { return callString; }
-
-    public int getSummarySize() { return summarySize; }
 
     public List<Set<AbstractLoc>> getSummary() { return summary; }
 
