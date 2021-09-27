@@ -40,12 +40,12 @@ public class AbstractLoc {
         this.constValue = null;
     }
 
-    public AbstractLoc(Type type, Value constValue) {
+    public AbstractLoc(Value constValue) {
         this.method = null;
         this.context = null;
         this.allocStmt = null;
-        this.type = type;
-        this.isConst = false;
+        this.type = constValue.getType();
+        this.isConst = true;
         this.constValue = constValue;
     }
 
