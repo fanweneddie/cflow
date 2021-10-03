@@ -7,6 +7,7 @@ import soot.SootMethod;
 import soot.Value;
 import taintAnalysis.pointsToAnalysis.AbstractLoc;
 import taintAnalysis.pointsToAnalysis.Context;
+import taintAnalysis.pointsToAnalysis.LibMethodWrapper;
 import taintAnalysis.sourceSinkManager.ISourceSinkManager;
 import taintAnalysis.taintWrapper.ITaintWrapper;
 import taintAnalysis.utility.PhantomIdentityStmt;
@@ -24,8 +25,10 @@ public class InterAnalysisTransformer extends SceneTransformer {
     private boolean printResults = true;
     private Map<Taint, List<List<Taint>>> pathsMap = new HashMap<>();
 
-    public InterAnalysisTransformer(ISourceSinkManager sourceSinkManager, ITaintWrapper taintWrapper, boolean use_points_to) {
-        this.analysis = new InterTaintAnalysis(sourceSinkManager, taintWrapper, use_points_to);
+    public InterAnalysisTransformer(ISourceSinkManager sourceSinkManager, ITaintWrapper taintWrapper,
+                                    LibMethodWrapper libMethodWrapper, boolean use_points_to) {
+        this.analysis = new InterTaintAnalysis(sourceSinkManager, taintWrapper,
+                libMethodWrapper, use_points_to);
     }
 
     public List<Taint> getSources() {
