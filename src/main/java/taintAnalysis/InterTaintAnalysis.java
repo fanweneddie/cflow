@@ -5,11 +5,13 @@ import org.slf4j.LoggerFactory;
 import soot.*;
 import soot.jimple.Stmt;
 import taintAnalysis.pointsToAnalysis.AbstractLoc;
+import taintAnalysis.pointsToAnalysis.LibMethodWrapper;
 import taintAnalysis.pointsToAnalysis.PointsToAnalysis;
 import taintAnalysis.pointsToAnalysis.Context;
 import taintAnalysis.sourceSinkManager.ISourceSinkManager;
 import taintAnalysis.taintWrapper.ITaintWrapper;
 
+import java.io.IOException;
 import java.util.*;
 import java.util.List;
 
@@ -19,6 +21,7 @@ public class InterTaintAnalysis {
 
     private final ISourceSinkManager sourceSinkManager;
     private final ITaintWrapper taintWrapper;
+    private final LibMethodWrapper libMethodWrapper;
     private final Set<Taint> sources;
     private final Set<Taint> sinks;
     // method summary for taint analysis
@@ -30,9 +33,11 @@ public class InterTaintAnalysis {
     // whether to use points-to analysis
     private final boolean use_points_to;
 
-    public InterTaintAnalysis(ISourceSinkManager sourceSinkManager, ITaintWrapper taintWrapper, boolean use_points_to) {
+    public InterTaintAnalysis(ISourceSinkManager sourceSinkManager, ITaintWrapper taintWrapper,
+                              LibMethodWrapper libMethodWrapper, boolean use_points_to) {
         this.sourceSinkManager = sourceSinkManager;
         this.taintWrapper = taintWrapper;
+        this.libMethodWrapper = libMethodWrapper;
         this.sources = new HashSet<>();
         this.sinks = new HashSet<>();
         this.taintMethodSummary = new HashMap<>();
@@ -83,7 +88,8 @@ public class InterTaintAnalysis {
      * @param uniqueStmtCache       stores the generated UniqueStmt(in order to reduce repetitious object generation)
      */
     private void startPointsToAnalysis(List<SootMethod> methodList, Map<String,Integer> stmtStrCounter,
-                                       Map<Stmt, Integer> countedStmtCache, Map<UniqueStmt, UniqueStmt> uniqueStmtCache) {
+                                       Map<Stmt, Integer> countedStmtCache,
+                                       Map<UniqueStmt, UniqueStmt> uniqueStmtCache) {
         logger.info("Start points-to analysis");
         int callStringLen = 5;
         // get the body of each method
@@ -100,7 +106,7 @@ public class InterTaintAnalysis {
                 int argNum = b.getMethod().getParameterCount();
                 Context context = new Context(callStringLen, new LinkedList<>(), argNum);
                 PointsToAnalysis analysis = new PointsToAnalysis(b, context, pointsToMethodSummary,
-                        finalMethodSummary, stmtStrCounter, countedStmtCache, uniqueStmtCache, new HashSet<>());
+                        finalMethodSummary, libMethodWrapper, stmtStrCounter, countedStmtCache, uniqueStmtCache, new HashSet<>());
                 analysis.doAnalysis();
             }
         }
