@@ -8,6 +8,7 @@ import soot.Value;
 import taintAnalysis.pointsToAnalysis.AbstractLoc;
 import taintAnalysis.pointsToAnalysis.Context;
 import taintAnalysis.pointsToAnalysis.LibMethodWrapper;
+import taintAnalysis.pointsToAnalysis.PointsToSet;
 import taintAnalysis.sourceSinkManager.ISourceSinkManager;
 import taintAnalysis.taintWrapper.ITaintWrapper;
 import taintAnalysis.utility.PhantomIdentityStmt;
@@ -43,12 +44,8 @@ public class InterAnalysisTransformer extends SceneTransformer {
         return analysis.getMethodTaintCache();
     }
 
-    public Map<SootMethod, Map<Context, Map<UniqueStmt, Map<Value,Set<AbstractLoc>>>>> getPointsToMethodSummary() {
+    public Map<SootMethod, Map<Context, Map<UniqueStmt, Map<Value, PointsToSet>>>> getPointsToMethodSummary() {
         return analysis.getPointsToMethodSummary();
-    }
-
-    public Map<SootMethod, Map<Context, List<Set<AbstractLoc>>>> getFinalMethodSummary() {
-        return analysis.getFinalMethodSummary();
     }
 
     @Override
