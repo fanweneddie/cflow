@@ -8,15 +8,15 @@ import java.util.*;
  * The context of a method,
  * which contains callString and The points-to set of this object, return value and arguments
  */
-public class Context implements Cloneable {
+public class Context {
     // the maximal number of the nearest call statements
     // or that is k in k-limiting callString
     private final int callStringLen;
     // the string of call statements as a context
     private final Queue<UniqueStmt> callString;
-    // the points-to set of this object and arguments
+    // the list of points-to map of this object and arguments
     // its size = number of arguments + 2
-    private final List<Set<AbstractLoc>> summary;
+    private final List<PointsToSet> summary;
 
     /**
      * Construct the context by passing callString and its max length
@@ -30,17 +30,12 @@ public class Context implements Cloneable {
         this.callStringLen = callStringLen;
         // approximate callString with given callStringLen
         this.callString = approximateCallString(callString);
-        // initialize summary with empty set
+        // initialize summary with null
         int summarySize = argNum + 2;
         this.summary = new ArrayList<>(summarySize);
         for( int i = 0; i < summarySize; ++i) {
-            summary.add(new HashSet<>());
+            summary.add(PointsToSet.getNullPts());
         }
-    }
-
-    @Override
-    protected Object clone() throws CloneNotSupportedException {
-        return super.clone();
     }
 
     /**
@@ -64,23 +59,22 @@ public class Context implements Cloneable {
     }
 
     /**
-     * Set the points-to set of an object(this/return value/argument)
+     * Set the points-to map of an object(this/return value/argument)
      * We use strong update to replace.
      * @param index             the index of the object in summary
      *                          by default, summary[0] is for this object,
      *                          summary[1] is for return value
      *                          summary[i+2] is for the ith argument
-     * @param abstractLocs      the point-to set
+     * @param pointsToSet      the points-to set of an object
      */
-    public void setSummary(int index, Set<AbstractLoc> abstractLocs) {
-        summary.get(index).clear();
-        summary.get(index).addAll(abstractLocs);
+    public void setSummary(int index, PointsToSet pointsToSet) {
+        summary.set(index, pointsToSet);
     }
 
     public int getCallStringLen() { return callStringLen; }
 
     public Queue<UniqueStmt> getCallString() { return callString; }
 
-    public List<Set<AbstractLoc>> getSummary() { return summary; }
+    public List<PointsToSet> getSummary() { return summary; }
 
 }
