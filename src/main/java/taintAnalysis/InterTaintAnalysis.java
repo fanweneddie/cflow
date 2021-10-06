@@ -8,6 +8,7 @@ import taintAnalysis.pointsToAnalysis.AbstractLoc;
 import taintAnalysis.pointsToAnalysis.LibMethodWrapper;
 import taintAnalysis.pointsToAnalysis.PointsToAnalysis;
 import taintAnalysis.pointsToAnalysis.Context;
+import taintAnalysis.pointsToAnalysis.PointsToSet;
 import taintAnalysis.sourceSinkManager.ISourceSinkManager;
 import taintAnalysis.taintWrapper.ITaintWrapper;
 
@@ -28,8 +29,7 @@ public class InterTaintAnalysis {
     private final Map<SootMethod, Map<Taint, List<Set<Taint>>>> taintMethodSummary;
     private final Map<SootMethod, Map<Taint, Taint>> methodTaintCache;
     // method summary for points-to analysis
-    private final Map<SootMethod, Map<Context, Map<UniqueStmt, Map<Value,Set<AbstractLoc>>>>> pointsToMethodSummary;
-    private final Map<SootMethod, Map<Context, List<Set<AbstractLoc>>>> finalMethodSummary;
+    private final Map<SootMethod, Map<Context, Map<UniqueStmt, Map<Value, PointsToSet>>>> pointsToMethodSummary;
     // whether to use points-to analysis
     private final boolean use_points_to;
 
@@ -43,7 +43,6 @@ public class InterTaintAnalysis {
         this.taintMethodSummary = new HashMap<>();
         this.methodTaintCache = new HashMap<>();
         this.pointsToMethodSummary = new HashMap<>();
-        this.finalMethodSummary = new HashMap<>();
         this.use_points_to = use_points_to;
     }
 
@@ -53,7 +52,6 @@ public class InterTaintAnalysis {
         this.taintMethodSummary.clear();
         this.methodTaintCache.clear();
         this.pointsToMethodSummary.clear();
-        this.finalMethodSummary.clear();
 
         List<SootMethod> methodList = new ArrayList<>();
         for (SootClass sc : Scene.v().getApplicationClasses()) {
@@ -103,10 +101,11 @@ public class InterTaintAnalysis {
         // if there is an invoke statement, we then recursively analyze callee method
         for (Body b : bodyList) {
             if (b.getMethod().toString().contains("void main(java.lang.String[])")) {
+            //if (b.getMethod().toString().contains("org.apache.hadoop.conf.Configuration$Parser: void handleEndElement()")) {
                 int argNum = b.getMethod().getParameterCount();
                 Context context = new Context(callStringLen, new LinkedList<>(), argNum);
                 PointsToAnalysis analysis = new PointsToAnalysis(b, context, pointsToMethodSummary,
-                        finalMethodSummary, libMethodWrapper, stmtStrCounter, countedStmtCache, uniqueStmtCache, new HashSet<>());
+                        libMethodWrapper, stmtStrCounter, countedStmtCache, uniqueStmtCache, new HashSet<>());
                 analysis.doAnalysis();
             }
         }
@@ -182,12 +181,8 @@ public class InterTaintAnalysis {
         return methodTaintCache;
     }
 
-    public Map<SootMethod, Map<Context, Map<UniqueStmt, Map<Value,Set<AbstractLoc>>>>> getPointsToMethodSummary() {
+    public Map<SootMethod, Map<Context, Map<UniqueStmt, Map<Value, PointsToSet>>>> getPointsToMethodSummary() {
         return pointsToMethodSummary;
-    }
-
-    public Map<SootMethod, Map<Context, List<Set<AbstractLoc>>>> getFinalMethodSummary() {
-        return finalMethodSummary;
     }
 
 }
