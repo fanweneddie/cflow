@@ -8,7 +8,7 @@ import taintAnalysis.pointsToAnalysis.AbstractLoc;
 import taintAnalysis.pointsToAnalysis.LibMethodWrapper;
 import taintAnalysis.pointsToAnalysis.PointsToAnalysis;
 import taintAnalysis.pointsToAnalysis.Context;
-import taintAnalysis.pointsToAnalysis.PointsToSet;
+import taintAnalysis.pointsToAnalysis.pointsToSet.PointsToSet;
 import taintAnalysis.sourceSinkManager.ISourceSinkManager;
 import taintAnalysis.taintWrapper.ITaintWrapper;
 
@@ -94,20 +94,20 @@ public class InterTaintAnalysis {
         List<Body> bodyList = new ArrayList<>();
         for (SootMethod sm : methodList) {
             Body b = sm.retrieveActiveBody();
-            bodyList.add(b);
+            if (b.getMethod().toString().contains("void main(java.lang.String[])")) {
+                bodyList.add(b);
+            }
         }
 
         // only analyze main() method as an entry method
         // if there is an invoke statement, we then recursively analyze callee method
         for (Body b : bodyList) {
-            if (b.getMethod().toString().contains("void main(java.lang.String[])")) {
-            //if (b.getMethod().toString().contains("org.apache.hadoop.conf.Configuration$Parser: void handleEndElement()")) {
-                int argNum = b.getMethod().getParameterCount();
-                Context context = new Context(callStringLen, new LinkedList<>(), argNum);
-                PointsToAnalysis analysis = new PointsToAnalysis(b, context, pointsToMethodSummary,
-                        libMethodWrapper, stmtStrCounter, countedStmtCache, uniqueStmtCache, new HashSet<>());
-                analysis.doAnalysis();
-            }
+            int argNum = b.getMethod().getParameterCount();
+            Context context = new Context(callStringLen, new LinkedList<>(), argNum);
+            String indent = "";
+            PointsToAnalysis analysis = new PointsToAnalysis(b, context, pointsToMethodSummary,
+                    libMethodWrapper, stmtStrCounter, countedStmtCache, uniqueStmtCache, new HashSet<>(), indent);
+            analysis.doAnalysis();
         }
 
         logger.info("Finished points-to analysis");
