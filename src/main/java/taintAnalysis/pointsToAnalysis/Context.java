@@ -1,6 +1,7 @@
 package taintAnalysis.pointsToAnalysis;
 
 import taintAnalysis.UniqueStmt;
+import taintAnalysis.pointsToAnalysis.pointsToSet.PointsToSet;
 
 import java.util.*;
 
@@ -34,7 +35,7 @@ public class Context {
         int summarySize = argNum + 2;
         this.summary = new ArrayList<>(summarySize);
         for( int i = 0; i < summarySize; ++i) {
-            summary.add(PointsToSet.getNullPts());
+            summary.add(null);
         }
     }
 
