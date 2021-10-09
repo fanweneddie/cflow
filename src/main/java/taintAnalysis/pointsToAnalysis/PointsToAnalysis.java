@@ -1,5 +1,9 @@
 package taintAnalysis.pointsToAnalysis;
 
+import taintAnalysis.pointsToAnalysis.pointsToSet.PointsToSet;
+import taintAnalysis.pointsToAnalysis.pointsToSet.ObjRefPointsToSet;
+import taintAnalysis.pointsToAnalysis.pointsToSet.ArrRefPointsToSet;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import soot.*;
@@ -57,12 +61,13 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
     // stores visited method, in order to eliminate recursive invoke
     private final Set<SootMethod> visitedMethods;
     private final Set<SootMethod> visitedLocalMethods;
+    private String indent;
 
     public PointsToAnalysis(Body body, Context context,
-                            Map<SootMethod, Map<Context, Map<UniqueStmt, Map<Value,PointsToSet>>>> methodSummary,
+                            Map<SootMethod, Map<Context, Map<UniqueStmt, Map<Value, PointsToSet>>>> methodSummary,
                             LibMethodWrapper libMethodWrapper,
                             Map<String, Integer> stmtStrCounter, Map<Stmt, Integer> countedStmtCache,
-                            Map<UniqueStmt, UniqueStmt> uniqueStmtCache, Set<SootMethod> visitedMethods) {
+                            Map<UniqueStmt, UniqueStmt> uniqueStmtCache, Set<SootMethod> visitedMethods, String indent) {
         super(new ExceptionalUnitGraph(body));
         this.body = body;
         this.method = body.getMethod();
@@ -78,6 +83,7 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
         this.uniqueStmtCache = uniqueStmtCache;
         this.visitedMethods = visitedMethods;
         this.visitedLocalMethods = new HashSet<>();
+        this.indent = indent;
 
         // Sanity check
         assertNotNull(body);
@@ -99,7 +105,7 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
         }
 
         // for debugging
-        logger.info(method.toString());
+        System.out.println(indent + method.toString());
     }
 
     /**
@@ -111,7 +117,7 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
     }
 
     /**
-     * Visit each node in CFG, use flow function to calculate out-set according to in-set
+     * Visit each node in CFG, use flow function to calculate out-set according to in-set.
      * @param in        in-set of map from variable to pts
      * @param unit      the current node to visit in CFG
      * @param out       out-set of map from variable to pts
@@ -127,20 +133,16 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
 
         // marks that this UniqueStmt has been visited
         currMethodSummary.putIfAbsent(uniqueStmt, new HashMap<>());
-
         // (strong) update in-set to currMethodSummary
         currMethodSummary.get(uniqueStmt).clear();
         currMethodSummary.get(uniqueStmt).putAll(in);
 
-        if (method.toString().contains("readTagFromConfig")) {
-            logger.info(stmt.toString());
-        }
-
-        // check whether the statement is an identity statement at the start of this method
+        // invoke different methods to deal with this node.
+        // 1. the statement is an identity statement at the start of this method
         if (stmt instanceof JIdentityStmt) {
             visitIdentity(uniqueStmt);
         }
-        // check whether the stmt is a new statement or a normal assignment statement
+        // 2. the stmt is a new statement or a normal assignment statement
         else if (stmt instanceof AssignStmt) {
             AssignStmt assignStmt = (AssignStmt) stmt;
             Value rightOp = assignStmt.getRightOp();
@@ -154,18 +156,18 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
                 visitNormalAssign(uniqueStmt);
             }
         }
-        // the statement is an invoke statement,
-        // if it is an init invoke statement of Object, then we allocate an object
-        // else, we pass the points-to set of this object, return value and parameters
+        // 3. the statement is an invoke statement.
+        // we pass the points-to set of this object, return value and parameters
         else if (stmt instanceof InvokeStmt) {
             InvokeExpr invoke = stmt.getInvokeExpr();
             assertNotNull(invoke);
             assert(invoke instanceof InstanceInvokeExpr);
             visitInvoke(uniqueStmt, invoke);
         }
-        // the statement is a return statement,
-        // record the points-to set of this object, return value and parameters into summary
-        else if (stmt instanceof JThrowStmt || stmt instanceof ReturnStmt || stmt instanceof ReturnVoidStmt) {
+        // 4. the statement is a throw/return statement,
+        // record the throw/return value in specialVarList
+        else if (stmt instanceof JThrowStmt
+                || stmt instanceof ReturnStmt || stmt instanceof ReturnVoidStmt) {
             visitReturn(uniqueStmt);
         }
 
@@ -175,84 +177,96 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
     }
 
     /**
-     * Visit an identity statement
-     * we will copy the context into the summary of this object and arguments
+     * Visit an identity statement.
+     * we will copy the context into the summary of this object and arguments.
      * @param uniqueStmt        the current identity statement
      */
     private void visitIdentity(UniqueStmt uniqueStmt) {
-        // get the left value and right value
+        // precondition check
+        Stmt stmt = uniqueStmt.getStmt();
+        assert(stmt instanceof JIdentityStmt);
+
         // right value is this object or argument
         // left value is the variable that refers to the right value
-        Stmt stmt = uniqueStmt.getStmt();
         JIdentityStmt idStmt = (JIdentityStmt) stmt;
         Value leftVal = idStmt.getLeftOpBox().getValue();
         Value rightVal = idStmt.getRightOpBox().getValue();
 
-        // check whether rightVal represents this object or argument
-        // and we will copy its corresponding summary in context to currMethodSummary
-        // also we will set record the left value in specialVarList to show
+        // check whether rightVal represents this object or argument,
+        // and we will copy its corresponding summary in context to currMethodSummary.
+        // Also, we will set record the left value in specialVarList to show
         // which variable refers to this object/arguments.
 
         // 1. rightVal represents this object
         if (rightVal instanceof ThisRef) {
             PointsToSet thisPts = context.getSummary().get(0);
             currMethodSummary.get(uniqueStmt).put(leftVal, thisPts);
+            // record left value as this object
             specialVarList.set(0, leftVal);
         }
         // 2. rightVal represents arguments
+        ////////////////////////////// ??? whether it is reference type???
         else if (rightVal instanceof ParameterRef) {
             ParameterRef arg = (ParameterRef) rightVal;
             // get the index number of this argument(the index of the first argument is 0).
             int index = arg.getIndex();
             PointsToSet argPts = context.getSummary().get(index + 2);
-            // here, the type of left value is not reference
+            // here, the type of left value is reference
             currMethodSummary.get(uniqueStmt).put(leftVal, argPts);
+            // record left value as the index th argument
             specialVarList.set(index + 2, leftVal);
         }
     }
 
     /**
-     * Visit a new(init) statement
-     * we will allocate a location for a variable
+     * Visit a new(init) statement.
+     * we will initialize the points-to set as null
+     * and record it into currMethodSummary.
      * @param uniqueStmt    the current new(init) statement
      */
     private void visitNew(UniqueStmt uniqueStmt) {
+        // precondition check
+        Stmt stmt = uniqueStmt.getStmt();
+        assert(stmt instanceof AssignStmt);
 
         // get the current new(init) statement
-        Stmt stmt = uniqueStmt.getStmt();
         AssignStmt assignStmt = (AssignStmt) stmt;
-
         // get the variable that refers to the new object
         Value leftOp = assignStmt.getLeftOp();
 
         // set its points-to set as empty
-        currMethodSummary.get(uniqueStmt).put(leftOp, PointsToSet.getNullPts());
+        currMethodSummary.get(uniqueStmt).put(leftOp, null);
     }
 
     /**
-     * Visit a normal assignment statement
-     * we will update the location for a variable
+     * Visit a normal assignment statement.
+     * we will update the points-to set for a variable.
      * @param uniqueStmt    the current normal assignment statement
      */
     private void visitNormalAssign(UniqueStmt uniqueStmt) {
-
-        // get the current assign statement
+        // precondition check
         Stmt stmt = uniqueStmt.getStmt();
-        AssignStmt assignStmt = (AssignStmt) stmt;
+        assert(stmt instanceof AssignStmt);
 
-        // get the variable of left and right operators
-        Value leftOp = assignStmt.getLeftOp();
-        Value rightOp = assignStmt.getRightOp();
+        // get the current new(init) statement
+        AssignStmt assignStmt = (AssignStmt) stmt;
+        // get the variable of left and right operands
+        Value leftVal = assignStmt.getLeftOp();
+        Value rightVal = assignStmt.getRightOp();
 
         // check whether it is a normal assign statement or an invoke assign statement
         // 1. the statement is an invoke assign statement(e.g. r = a.m(b1,b2))
+        // we call visitInvoke() to deal with it
         if (stmt.containsInvokeExpr()) {
             InvokeExpr invoke = stmt.getInvokeExpr();
             visitInvoke(uniqueStmt, invoke);
         }
+        //////////////////////////// CONSTANT OF PRIMARY?
         // 2. the statement is a normal assign statement(e.g. r = a)
-        // and the value to be assigned is not a primitive type
-        else if (rightOp.getType() instanceof RefLikeType) {
+        // and right value is not a primitive type.
+        // we need to get the points-to set of right value
+        // and assign it to that of left value
+        else if (rightVal.getType() instanceof RefLikeType) {
 
             // there are five types of assignments:
             // 1. a = b
@@ -260,103 +274,133 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
             // 3. a = b.f
             // 4. a[i] = b
             // 5. a = b[i]
-            // we assume that the pointsToSet of right operator is stored in currMethodSummary
+            // we assume that the pointsToSet of right value is stored in currMethodSummary
 
-            // get the pointsToSet of right operand
-            PointsToSet rightOpPts;
-            // 1. right operand is a reference to a field,
-            // we should get the pointsToSet of that field
-            if (rightOp instanceof JInstanceFieldRef) {
-                Value rightOpBase = ((JInstanceFieldRef) rightOp).getBase();
-                SootField rightOpField = ((JInstanceFieldRef) rightOp).getFieldRef().resolve();
-                PointsToSet rightOpBasePts = currMethodSummary.get(uniqueStmt).get(rightOpBase);
-                assert(rightOpBasePts != null);
-                rightOpPts = rightOpBasePts.getFieldPts(rightOpField);
-                if (rightOpPts == null) {
-                    rightOpPts = new PointsToSet();
+            // get the points-to set of right value based on different cases of right value
+            PointsToSet rightValPts;
+            // 1. right value is a reference to a field(e.g. b.f),
+            // we should get the points-to set of that field
+            if (rightVal instanceof JInstanceFieldRef) {
+                // the base and field of right value
+                Value rightValBase = ((JInstanceFieldRef) rightVal).getBase();
+                SootField rightValField = ((JInstanceFieldRef) rightVal).getFieldRef().resolve();
+                // the points-to set of the base of right value
+                PointsToSet rightValBasePts = currMethodSummary.get(uniqueStmt).get(rightValBase);
+                // the points-to set of base of right value may not be recorded in currMethodSummary
+                if (rightValBasePts == null) {
+                    rightValPts = null;
+                } else {
+                    assert(rightValBasePts instanceof ObjRefPointsToSet);
+                    rightValPts = ((ObjRefPointsToSet) rightValBasePts).getFieldPts(rightValField);
                 }
             }
-            // 2. right operand is
-            else if (rightOp instanceof JArrayRef) {
-                Value rightOpArrRef = ((JArrayRef) rightOp).getBaseBox().getValue();
-                PointsToSet rightOpArrRefPts = currMethodSummary.get(uniqueStmt).get(rightOpArrRef);
-                assert (rightOpArrRefPts != null);
-                rightOpPts = rightOpArrRefPts.getElePtsList().get(0);
+            // 2. right value is a reference to an array(e.g. b[i]),
+            // we should get the points-to set of the element reference
+            else if (rightVal instanceof JArrayRef) {
+                // the reference of array of right value and its corresponding points-to set
+                Value rightValArrRef = ((JArrayRef) rightVal).getBaseBox().getValue();
+                PointsToSet rightValArrRefPts = currMethodSummary.get(uniqueStmt).get(rightValArrRef);
+                // the points-to set of reference array of right value
+                // may not be recorded in currMethodSummary
+                if (rightValArrRefPts == null) {
+                    rightValPts = null;
+                } else {
+                    assert(rightValArrRefPts instanceof ArrRefPointsToSet);
+                    rightValPts = ((ArrRefPointsToSet) rightValArrRefPts).getElePts();
+                }
             }
-            // 3. right operand is just an object
-            // just get its pointsToSet
+            // 3. right value is just an object(e.g. b)
+            // just get its points-to set from currMethodSummary
             else {
-                if (currMethodSummary.get(uniqueStmt).containsKey(rightOp)) {
-                    rightOpPts = currMethodSummary.get(uniqueStmt).get(rightOp);
+                if (currMethodSummary.get(uniqueStmt).containsKey(rightVal)) {
+                    rightValPts = currMethodSummary.get(uniqueStmt).get(rightVal);
                 }
-                ////  useful ???
+                //////////////////// useful???
                 else {
-                    rightOpPts = new PointsToSet();
+                    rightValPts = null;
                 }
             }
 
-            // update the pointsToSet of left operand
-            PointsToSet leftOpPts;
-            // 1. left operand is a reference to a field,
-            // we should update the pointsToSet of that field
-            if (leftOp instanceof JInstanceFieldRef) {
-                Value leftOpBase = ((JInstanceFieldRef) leftOp).getBase();
-                SootField leftOpField = ((JInstanceFieldRef) leftOp).getFieldRef().resolve();
-                // get the pointsToSet of base object of left operand
-                PointsToSet leftOpBasePts;
-                if (currMethodSummary.get(uniqueStmt).containsKey(leftOpBase)) {
-                    leftOpBasePts = currMethodSummary.get(uniqueStmt).get(leftOpBase);
-                } else {
-                    leftOpBasePts = new PointsToSet();
+            // update the points-to set of left value, based on different cases of left value
+            // 1. left value is a reference to a field(e.g. a.f),
+            // we should update the points-to set of that field
+            if (leftVal instanceof JInstanceFieldRef) {
+                // the base and field of left value
+                Value leftValBase = ((JInstanceFieldRef) leftVal).getBase();
+                SootField leftValField = ((JInstanceFieldRef) leftVal).getFieldRef().resolve();
+                // get the points-to set of base object of left value
+                PointsToSet leftValBasePts = null;
+                if (currMethodSummary.get(uniqueStmt).containsKey(leftValBase)) {
+                    leftValBasePts = currMethodSummary.get(uniqueStmt).get(leftValBase);
                 }
-                // (strong) update the pointsToSet of the field
-                leftOpBasePts.addField(leftOpField, rightOpPts);
+                if (leftValBasePts == null) {
+                    leftValBasePts = new ObjRefPointsToSet();
+                }
+                // (strong) update the points-to set of the field
+                ((ObjRefPointsToSet) leftValBasePts).addField(leftValField, rightValPts);
             }
-            // 2. left operand is a reference to an array
-            //
-            else if (leftOp instanceof JArrayRef) {
-                Value leftOpArrRef = ((JArrayRef) leftOp).getBaseBox().getValue();
-                // (strong) update the pointsToSet of the element
-                List<PointsToSet> leftOpArrEle = currMethodSummary.get(uniqueStmt).get(leftOpArrRef).getElePtsList();
-                if(leftOpArrEle.size() == 0) {
-                    leftOpArrEle.add(rightOpPts);
+            // 2. left value is a reference to an array(e.g. a[i])
+            // we should update the points-to set of the element
+            else if (leftVal instanceof JArrayRef) {
+                // the reference of array of left value and its corresponding points-to set
+                Value leftValArrRef = ((JArrayRef) leftVal).getBaseBox().getValue();
+                PointsToSet leftValArrRefPts = currMethodSummary.get(uniqueStmt).get(leftValArrRef);
+                // (strong) update the points-to set of the element in array
+                PointsToSet leftValArrElePts;
+                assert(leftValArrRefPts instanceof ArrRefPointsToSet);
+                if (leftValArrRefPts == null) {
+                    /////////////////////// really happens???
                 } else {
-                    leftOpArrEle.set(0, rightOpPts);
+                    ((ArrRefPointsToSet) leftValArrRefPts).setElePts(rightValPts);
                 }
             }
-            // 3. left operand is just an object
-            // we should update its pointsToSet
+            // 3. left operand is just an object(e.g. a),
+            // we should update its points-to set
             else {
-                leftOpPts = new PointsToSet(rightOpPts);
-                // strong update: use pts(rightOp) to replace pts(leftOp)
-                currMethodSummary.get(uniqueStmt).put(leftOp, leftOpPts);
+                PointsToSet leftValPts;
+                if (rightValPts instanceof ObjRefPointsToSet) {
+                    leftValPts = new ObjRefPointsToSet((ObjRefPointsToSet) rightValPts);
+                } else if (rightValPts instanceof ArrRefPointsToSet){
+                    leftValPts = new ArrRefPointsToSet((ArrRefPointsToSet) rightValPts);
+                } else {
+                    leftValPts = null;
+                }
+                // strong update: use pts(rightVal) to replace pts(leftVal)
+                currMethodSummary.get(uniqueStmt).put(leftVal, leftValPts);
             }
         }
     }
 
     /**
-     * Visit an init invoke statement of Object
-     * And we will allocate a location for a variable.
-     * If allocObject is Base, then stmt is invokeStmt
-     * If allocObject is RetVal, then stmt is assignStmt
+     * Visit an init invoke statement of object/array.
+     * And we will allocate a location for that object/array.
+     * If newObject is Base, then stmt is invokeStmt.
+     * If newObject is RetVal, then stmt is assignStmt.
      * @param uniqueStmt    the current new(init) statement
-     * @param newObject     the new object to be allocated,
+     * @param newVar        the new object to be allocated,
      *                      it can be a base object or a return value
      */
-    private void visitAlloc(UniqueStmt uniqueStmt, Value newObject) {
+    private void visitAlloc(UniqueStmt uniqueStmt, Value newVar) {
+        // newValue can only be a reference to an object or an array
+        Type refType = newVar.getType();
+        assert(refType instanceof RefType || refType instanceof ArrayType);
 
         // allocate a new heap location and get the pointsToSet for newObject
-        Type objectType = newObject.getType();
-        PointsToSet pts = new PointsToSet(method, context, uniqueStmt, objectType);
-
-        // strong update: use {newLoc} to replace the original points-to set of newObject,
-        currMethodSummary.get(uniqueStmt).put(newObject, pts);
+        PointsToSet pts;
+        if (refType instanceof RefType) {
+            pts = new ObjRefPointsToSet(method, context, uniqueStmt, refType);
+        } else {
+            pts = new ArrRefPointsToSet(method, context, uniqueStmt, refType);
+        }
+        // strong update: use points-to set to replace the original points-to set of newVar
+        currMethodSummary.get(uniqueStmt).put(newVar, pts);
     }
 
     /**
      * Visit an invoke statement,
      * pass the points-to set of this object and arguments from this summary to callee summary,
-     * also pass the points-to set of this object, return value and arguments from callee summary to this summary
+     * also pass the points-to set of this object,
+     * return value and arguments from callee summary to this summary
      * @param uniqueStmt    the current invoke statement
      * @param invoke        the current invoke expression
      */
@@ -402,27 +446,21 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
 
             // pass the points-to set of this object and arguments from this summary to callee summary
             // 1. index 0 means summary[0] = points-to set of base(this) object
-            // for non-static invoke
+            // for non-static invoke, where base is not null
             if (base != null) {
                 newContext.setSummary(0, currMethodSummary.get(uniqueStmt).get(base));
             }
-            // for static invoke, not sure that it is right
-            else {
-                newContext.setSummary(0, new PointsToSet());
-            }
-            // 2. index 1 means summary[1] = empty set for initialization
-            newContext.setSummary(1, new PointsToSet());
-            // 3. index i+2 means summary[i+2] = points-to set of the ith argument
+
+            // 3. index i+2 means summary[i+2] is points-to set of the i th argument
             for (int i = 0; i < argNum; ++i) {
                 Value arg = invoke.getArg(i);
-                // get the pts of arg if it is not a primitive type
-                PointsToSet argPts = new PointsToSet();
                 if (arg.getType() instanceof RefLikeType) {
                     if (currMethodSummary.get(uniqueStmt).containsKey(arg)) {
-                        argPts = currMethodSummary.get(uniqueStmt).get(arg);
+                        PointsToSet argPts = currMethodSummary.get(uniqueStmt).get(arg);
+                        newContext.setSummary(i + 2, argPts);
                     }
                 }
-                newContext.setSummary(i + 2, argPts);
+
             }
 
             // record newContext into calleeSummary
@@ -435,11 +473,14 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
             Body calleeBody = calleeMethod.retrieveActiveBody();
             assertNotNull(calleeBody);
             visitedMethods.add(calleeMethod);
+            indent = indent + "##";
             visitedLocalMethods.add(calleeMethod);
             PointsToAnalysis calleeAnalysis = new PointsToAnalysis(calleeBody, newContext, methodSummary,
                     libMethodWrapper, stmtStrCounter,
-                    countedStmtCache, uniqueStmtCache, visitedMethods);
+                    countedStmtCache, uniqueStmtCache, visitedMethods, indent);
             calleeAnalysis.doAnalysis();
+            int size = indent.length();
+            indent = indent.substring(0, size - 2);
             visitedMethods.remove(calleeMethod);
 
             // pass the points-to set of this object, return value and arguments
@@ -452,7 +493,7 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
             if (calleeBase != null && calleeBase.getType() instanceof RefLikeType) {
                 PointsToSet basePts;
                 if (calleeBase instanceof NullConstant) {
-                    basePts = PointsToSet.getNullPts();
+                    basePts = null;
                 } else {
                     basePts = calleeFinalSummary.get(calleeBase);
                 }
@@ -465,7 +506,7 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
             if (calleeRetVal != null && calleeRetVal.getType() instanceof RefLikeType) {
                 PointsToSet retValPts;
                 if (calleeRetVal instanceof NullConstant) {
-                    retValPts = PointsToSet.getNullPts();
+                    retValPts = null;
                 } else {
                     retValPts = calleeFinalSummary.get(calleeRetVal);
                 }
@@ -481,7 +522,7 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
                 if (calleeArg != null && calleeArg.getType() instanceof RefLikeType) {
                     PointsToSet argPts;
                     if (calleeArg instanceof NullConstant) {
-                        argPts = PointsToSet.getNullPts();
+                        argPts = null;
                     } else {
                         argPts = calleeFinalSummary.get(calleeArg);
                     }
@@ -512,10 +553,12 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
      * @param uniqueStmt    the current return statement
      */
     private void visitReturn(UniqueStmt uniqueStmt) {
+        Stmt stmt = uniqueStmt.getStmt();
+        assert(stmt instanceof JThrowStmt
+                || stmt instanceof ReturnStmt || stmt instanceof ReturnVoidStmt);
         // record the final statement in this method
         // (note that there is only one return statement in each method body)
         finalStmt = uniqueStmt;
-        Stmt stmt = uniqueStmt.getStmt();
 
         // record the return value in specialVarList
         // if it is not of primitive type
@@ -558,9 +601,20 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
             Value variable = entry.getKey();
             PointsToSet pts = entry.getValue();
             if (out.containsKey(variable)) {
-                out.get(variable).merge(pts);
+                if (out.get(variable) == null) {
+                    out.put(variable, pts);
+                } else {
+                    out.get(variable).merge(pts);
+                }
             } else {
-                PointsToSet newPts = new PointsToSet(pts);
+                PointsToSet newPts;
+                if (pts instanceof ObjRefPointsToSet) {
+                    newPts = new ObjRefPointsToSet((ObjRefPointsToSet) pts);
+                } else if (pts instanceof ArrRefPointsToSet) {
+                    newPts = new ArrRefPointsToSet((ArrRefPointsToSet) pts);
+                } else {
+                    newPts = null;
+                }
                 out.put(variable, newPts);
             }
         }
@@ -655,4 +709,5 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
     public UniqueStmt getFinalStmt() { return finalStmt; }
 
     public List<Value> getSpecialVarList() { return specialVarList; }
+
 }
