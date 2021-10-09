@@ -8,7 +8,7 @@ import soot.Value;
 import taintAnalysis.pointsToAnalysis.AbstractLoc;
 import taintAnalysis.pointsToAnalysis.Context;
 import taintAnalysis.pointsToAnalysis.LibMethodWrapper;
-import taintAnalysis.pointsToAnalysis.PointsToSet;
+import taintAnalysis.pointsToAnalysis.pointsToSet.PointsToSet;
 import taintAnalysis.sourceSinkManager.ISourceSinkManager;
 import taintAnalysis.taintWrapper.ITaintWrapper;
 import taintAnalysis.utility.PhantomIdentityStmt;
