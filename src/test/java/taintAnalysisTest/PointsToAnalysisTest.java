@@ -9,7 +9,7 @@ import taintAnalysis.*;
 import taintAnalysis.pointsToAnalysis.AbstractLoc;
 import taintAnalysis.pointsToAnalysis.Context;
 import taintAnalysis.pointsToAnalysis.LibMethodWrapper;
-import taintAnalysis.pointsToAnalysis.PointsToSet;
+import taintAnalysis.pointsToAnalysis.pointsToSet.PointsToSet;
 import taintAnalysis.sourceSinkManager.ISourceSinkManager;
 import taintAnalysis.sourceSinkManager.SourceSinkManager;
 import taintAnalysis.taintWrapper.ITaintWrapper;
