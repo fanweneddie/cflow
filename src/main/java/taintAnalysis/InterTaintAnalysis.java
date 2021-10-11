@@ -4,7 +4,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import soot.*;
 import soot.jimple.Stmt;
-import taintAnalysis.pointsToAnalysis.AbstractLoc;
 import taintAnalysis.pointsToAnalysis.LibMethodWrapper;
 import taintAnalysis.pointsToAnalysis.PointsToAnalysis;
 import taintAnalysis.pointsToAnalysis.Context;
@@ -12,7 +11,6 @@ import taintAnalysis.pointsToAnalysis.pointsToSet.PointsToSet;
 import taintAnalysis.sourceSinkManager.ISourceSinkManager;
 import taintAnalysis.taintWrapper.ITaintWrapper;
 
-import java.io.IOException;
 import java.util.*;
 import java.util.List;
 
@@ -72,7 +70,7 @@ public class InterTaintAnalysis {
 
         // Bootstrap for points-to analysis
         if (use_points_to) {
-            startPointsToAnalysis(methodList, stmtStrCounter, countedStmtCache, uniqueStmtCache);
+           startPointsToAnalysis(methodList, stmtStrCounter, countedStmtCache, uniqueStmtCache);
         }
         // Bootstrap for taint analysis
         //startTaintAnalysis(methodList, stmtStrCounter, countedStmtCache, uniqueStmtCache);
