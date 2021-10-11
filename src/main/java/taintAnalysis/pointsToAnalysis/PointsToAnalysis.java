@@ -148,8 +148,11 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
             Value rightOp = assignStmt.getRightOp();
             assertNotNull(rightOp);
             // new statement
-            if (rightOp instanceof JNewExpr || rightOp instanceof JNewArrayExpr) {
+            if (rightOp instanceof JNewExpr) {
                 visitNew(uniqueStmt);
+            }
+            else if (rightOp instanceof JNewArrayExpr) {
+                visitNewArray(uniqueStmt);
             }
             // normal assignment statement
             else {
@@ -205,8 +208,8 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
             specialVarList.set(0, leftVal);
         }
         // 2. rightVal represents arguments
-        ////////////////////////////// ??? whether it is reference type???
-        else if (rightVal instanceof ParameterRef) {
+        else if (rightVal instanceof ParameterRef &&
+                (rightVal.getType() instanceof RefType || rightVal.getType() instanceof ArrayType)) {
             ParameterRef arg = (ParameterRef) rightVal;
             // get the index number of this argument(the index of the first argument is 0).
             int index = arg.getIndex();
@@ -216,10 +219,16 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
             // record left value as the index th argument
             specialVarList.set(index + 2, leftVal);
         }
+        // 3. rightVal represents exception
+        // we don't need to analyze the alias of exceptions,
+        // so we just set its points-to set as null
+        else if (rightVal instanceof JCaughtExceptionRef) {
+            currMethodSummary.get(uniqueStmt).put(leftVal, null);
+        }
     }
 
     /**
-     * Visit a new(init) statement.
+     * Visit a new(init) statement for object.
      * we will initialize the points-to set as null
      * and record it into currMethodSummary.
      * @param uniqueStmt    the current new(init) statement
@@ -239,6 +248,42 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
     }
 
     /**
+     * Visit a new(init) statement for array.
+     * we will initialize the points-to set as null
+     * @param uniqueStmt
+     */
+    private void visitNewArray(UniqueStmt uniqueStmt) {
+        // precondition check
+        Stmt stmt = uniqueStmt.getStmt();
+        assert(stmt instanceof AssignStmt);
+
+        // get the current new(init) statement
+        AssignStmt assignStmt = (AssignStmt) stmt;
+        // get the variable that refers to the new object
+        Value leftOp = assignStmt.getLeftOp();
+        // the type of leftOp must be an array type
+        Type leftOpType = leftOp.getType();
+        assert(leftOpType instanceof ArrayType);
+        // allocate a new location for the array reference
+        ArrRefPointsToSet pts = new ArrRefPointsToSet(method, context, uniqueStmt, leftOpType);
+
+        // the element type of left operand
+        Type leftOpEleType = ((ArrayType) leftOp.getType()).getArrayElementType();
+        // allocate a heap location for element in array
+        PointsToSet elePts;
+        if (leftOpEleType instanceof RefType) {
+            elePts = new ObjRefPointsToSet(method, context, uniqueStmt, leftOpEleType);
+        } else if (leftOpEleType instanceof ArrayType) {
+            elePts = new ArrRefPointsToSet(method, context, uniqueStmt, leftOpEleType);
+        } else {
+            elePts = null;
+        }
+        // record the points-to set of leftOp into currMethodSummary
+        pts.setElePts(elePts);
+        currMethodSummary.get(uniqueStmt).put(leftOp, pts);
+    }
+
+    /**
      * Visit a normal assignment statement.
      * we will update the points-to set for a variable.
      * @param uniqueStmt    the current normal assignment statement
@@ -253,7 +298,6 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
         // get the variable of left and right operands
         Value leftVal = assignStmt.getLeftOp();
         Value rightVal = assignStmt.getRightOp();
-
         // check whether it is a normal assign statement or an invoke assign statement
         // 1. the statement is an invoke assign statement(e.g. r = a.m(b1,b2))
         // we call visitInvoke() to deal with it
@@ -311,14 +355,14 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
             }
             // 3. right value is just an object(e.g. b)
             // just get its points-to set from currMethodSummary
-            else {
+            else if (rightVal instanceof JimpleLocal) {
                 if (currMethodSummary.get(uniqueStmt).containsKey(rightVal)) {
                     rightValPts = currMethodSummary.get(uniqueStmt).get(rightVal);
-                }
-                //////////////////// useful???
-                else {
+                } else {
                     rightValPts = null;
                 }
+            } else {
+                rightValPts = null;
             }
 
             // update the points-to set of left value, based on different cases of left value
@@ -346,11 +390,8 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
                 Value leftValArrRef = ((JArrayRef) leftVal).getBaseBox().getValue();
                 PointsToSet leftValArrRefPts = currMethodSummary.get(uniqueStmt).get(leftValArrRef);
                 // (strong) update the points-to set of the element in array
-                PointsToSet leftValArrElePts;
                 assert(leftValArrRefPts instanceof ArrRefPointsToSet);
-                if (leftValArrRefPts == null) {
-                    /////////////////////// really happens???
-                } else {
+                if (leftValArrRefPts != null) {
                     ((ArrRefPointsToSet) leftValArrRefPts).setElePts(rightValPts);
                 }
             }
@@ -433,7 +474,7 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
         // 1. analyze callee method directly(if possible)
         // we use visitedMethod to check whether the invoke is recursive
         // we don't analyze recursive call
-        if (calleeMethod.isConcrete() && !libMethodWrapper.check(calleeMethod)
+        if (calleeMethod.hasActiveBody() && !libMethodWrapper.check(calleeMethod)
                 && !visitedMethods.contains(calleeMethod)) {
 
             // update methodSummary for calleeMethod
@@ -539,8 +580,7 @@ public class PointsToAnalysis extends ForwardFlowAnalysis<Unit, Map<Value, Point
         }
         // 3. for invoke to a library method that returns a reference type
         // we don't analyze the method, but we should allocate the space for return value
-        else if (retVal != null && calleeMethod.getReturnType() instanceof RefLikeType)
-        {
+        else if (retVal != null && calleeMethod.getReturnType() instanceof RefLikeType) {
             visitedLocalMethods.add(calleeMethod);
             visitAlloc(uniqueStmt, retVal);
         }
