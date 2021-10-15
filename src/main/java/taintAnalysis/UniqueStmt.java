@@ -8,9 +8,9 @@ import java.util.Objects;
  * in order to make it unique
  */
 public class UniqueStmt {
-    // Soot statement
+    // A jimple statement
     private final Stmt stmt;
-    // the count of the statement in the program
+    // The count of the statement in the program.
     // that means, if that statement has 3 appearances in a CFG,
     // then we set the count of each statement as 1, 2, 3
     private final int count;
@@ -46,11 +46,11 @@ public class UniqueStmt {
 
     /**
      * Here we combine stmt and count to generate hashcode,
-     * in order to make each one unique(for comparison in sorting)
-     * @return
+     * in order to make each one unique(for comparison in sorting).
      */
     @Override
     public int hashCode() {
         return Objects.hash(stmt, count);
     }
+
 }
