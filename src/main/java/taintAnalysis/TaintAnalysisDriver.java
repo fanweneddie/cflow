@@ -3,7 +3,6 @@ package taintAnalysis;
 import soot.G;
 import soot.PackManager;
 import soot.Transform;
-import taintAnalysis.pointsToAnalysis.LibMethodWrapper;
 import taintAnalysis.sourceSinkManager.ISourceSinkManager;
 import taintAnalysis.taintWrapper.ITaintWrapper;
 
@@ -13,17 +12,15 @@ public class TaintAnalysisDriver {
 
     private ISourceSinkManager sourceSinkManager;
     private ITaintWrapper taintWrapper;
-    private LibMethodWrapper libMethodWrapper;
 
     public TaintAnalysisDriver(ISourceSinkManager sourceSinkManager) {
-        this(sourceSinkManager, null, null);
+        this(sourceSinkManager, null);
     }
 
     public TaintAnalysisDriver(ISourceSinkManager sourceSinkManager,
-                               ITaintWrapper taintWrapper, LibMethodWrapper libMethodWrapper) {
+                               ITaintWrapper taintWrapper) {
         this.sourceSinkManager = sourceSinkManager;
         this.taintWrapper = taintWrapper;
-        this.libMethodWrapper = libMethodWrapper;
     }
 
     public IntraAnalysisTransformer runIntraTaintAnalysis(List<String> srcPaths, List<String> classPaths) {
@@ -117,8 +114,7 @@ public class TaintAnalysisDriver {
 
         PackManager.v().getPack("wjtp").add(
                 new Transform("wjtp.taintanalysis",
-                        new InterAnalysisTransformer(sourceSinkManager, taintWrapper,
-                                libMethodWrapper, run_points_to)));
+                        new InterAnalysisTransformer(sourceSinkManager, taintWrapper, run_points_to)));
 
         soot.Main.main(sootArgs);
 
