@@ -1,7 +1,6 @@
 import configInterface.ConfigInterface;
 import org.apache.commons.cli.*;
 import taintAnalysis.TaintAnalysisDriver;
-import taintAnalysis.pointsToAnalysis.LibMethodWrapper;
 import taintAnalysis.sourceSinkManager.ISourceSinkManager;
 import taintAnalysis.sourceSinkManager.SourceSinkManager;
 import taintAnalysis.taintWrapper.ITaintWrapper;
@@ -47,7 +46,7 @@ public class Main {
         /* a new option of running point-to analysis before this analysis */
         Option optionPA = Option.builder(null)
                 .required(false)
-                .desc("Run points-to analysis(for precision)")
+                .desc("Run points-to analysis (for precision)")
                 .longOpt("points-to")
                 .hasArg(false)
                 .build();
@@ -65,7 +64,7 @@ public class Main {
             boolean use_spark = false;
             boolean run_intra = false;
             /* whether to run points-to analysis */
-            boolean run_points_to = true;
+            boolean do_points_to = false;
 
             /* getting required parameters */
             /* getting option a */
@@ -97,10 +96,10 @@ public class Main {
             }
             if (commandLine.hasOption("points-to")) {
                 /* getting option points-to */
-                run_points_to = true;
+                do_points_to = true;
             }
 
-            run(considered, use_spark, run_intra, run_points_to);
+            run(considered, use_spark, run_intra, do_points_to);
         } catch (ParseException ex) {
             System.out.println(ex.getMessage());
             new HelpFormatter().printHelp("ccc", options);
@@ -108,7 +107,7 @@ public class Main {
     }
 
     private static void run(String[][] considered, boolean use_spark,
-                            boolean run_intra, boolean run_points_to) throws IOException {
+                            boolean run_intra, boolean do_points_to) throws IOException {
         List<String> srcPaths = new LinkedList<>();
         List<String> classPaths = new LinkedList<>();
         ConfigInterface configInterface = null;
@@ -122,12 +121,11 @@ public class Main {
         // Run taint analysis
         ISourceSinkManager sourceSinkManager = new SourceSinkManager(configInterface);
         ITaintWrapper taintWrapper = TaintWrapper.getDefault();
-        LibMethodWrapper libMethodWrapper = LibMethodWrapper.getDefault();
-        TaintAnalysisDriver driver = new TaintAnalysisDriver(sourceSinkManager, taintWrapper, libMethodWrapper);
+        TaintAnalysisDriver driver = new TaintAnalysisDriver(sourceSinkManager, taintWrapper);
         if (run_intra) {
             driver.runIntraTaintAnalysis(srcPaths, classPaths);
         } else {
-            driver.runInterTaintAnalysis(srcPaths, classPaths, use_spark, run_points_to);
+            driver.runInterTaintAnalysis(srcPaths, classPaths, use_spark, do_points_to);
         }
     }
 
