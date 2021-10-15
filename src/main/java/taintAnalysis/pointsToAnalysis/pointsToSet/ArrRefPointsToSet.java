@@ -16,52 +16,47 @@ import static assertion.Assert.assertNotNull;
 *  it also contains a points-to set of the element(We just set one element for approximation).
 */
 public class ArrRefPointsToSet extends PointsToSet {
-    // points-to set for array element
+    // Points-to set for array element
     private PointsToSet elePts;
 
-    /* Several naive constructors for ArrRefPointsToSet */
+    /** Several naive constructors for ArrRefPointsToSet */
     public ArrRefPointsToSet() {
         super();
         this.elePts = null;
     }
 
-    public ArrRefPointsToSet(Set<AbstractLoc> locSet) {
-        super(locSet);
+    public ArrRefPointsToSet(AbstractLoc location) {
+        super(location);
         this.elePts = null;
     }
 
-    public ArrRefPointsToSet(AbstractLoc abstractLoc) {
-        super(abstractLoc);
-        this.elePts = null;
-    }
-
-    /* Copy constructor */
+    /** Copy constructor */
     public ArrRefPointsToSet(ArrRefPointsToSet arrRefPts) {
         super();
         assertNotNull(arrRefPts);
-        // copy locSet
-        locSet.addAll(arrRefPts.getLocSet());
-        // copy element points-to set
+        // Copy locSet
+        location = new AbstractLoc(arrRefPts.getLocation());
+
+        // Copy element points-to set
         this.elePts = arrRefPts.getElePts();
     }
 
     /**
      * Create a new points-to set for a variable at a program point.
-     * @param method        the method that the program point is in
      * @param context       the context of the method
-     * @param uniqueStmt    the statement of program point
      * @param objectType    the type of the object, it must be an instance of ArrayType
      */
-    public ArrRefPointsToSet(SootMethod method, Context context, UniqueStmt uniqueStmt, Type objectType) {
+    public ArrRefPointsToSet(Context context, Type objectType) {
         super();
+        // Precondition check
         assert(objectType instanceof ArrayType);
-        // get the locSet for the base object
-        AbstractLoc baseLoc = new AbstractLoc(method, context, uniqueStmt, objectType);
-        this.locSet.add(baseLoc);
-        // initialize elePts based on the type of element
+
+        // Get the locSet for the base object
+        this.location = new AbstractLoc(context, objectType);
+        // Initialize elePts based on the type of element
         Type eleType = ((ArrayType) objectType).getArrayElementType();
         if (eleType instanceof ArrayType || eleType instanceof RefType) {
-            AbstractLoc eleLoc = new AbstractLoc(method, context, uniqueStmt, eleType);
+            AbstractLoc eleLoc = new AbstractLoc(context, eleType);
             if (eleType instanceof RefType) {
                 this.elePts = new ObjRefPointsToSet(eleLoc);
             } else {
@@ -72,13 +67,18 @@ public class ArrRefPointsToSet extends PointsToSet {
         }
     }
 
-    /* A complete constructor */
-    public ArrRefPointsToSet(Set<AbstractLoc> locSet, PointsToSet elePts) {
-        super(locSet);
+    public ArrRefPointsToSet(AbstractLoc location, PointsToSet elePts) {
+        super(location);
         this.elePts = elePts;
     }
 
-    public Set<AbstractLoc> getLocSet() { return locSet; }
+    public ArrRefPointsToSet(ObjRefPointsToSet objRefPointsToSet, Type objectType) {
+        super(objRefPointsToSet.location);
+        location.setType(objectType);
+        this.elePts = null;
+    }
+
+    public AbstractLoc getLocation() { return location; }
 
     public PointsToSet getElePts() { return elePts; }
 
@@ -93,30 +93,63 @@ public class ArrRefPointsToSet extends PointsToSet {
      * @param pts       the given PointsToSet, must be an ArrRefPointsToSet
      */
     public void merge(PointsToSet pts) {
-        // we have nothing to merge if pts is a null
+        // We have nothing to merge if pts is a null
         if (pts == null) {
             return;
         }
-        // we only merge pts of the same type
+
+        // We only merge pts of the same type
         assert(pts instanceof ArrRefPointsToSet);
         ArrRefPointsToSet arrRefPts = (ArrRefPointsToSet) pts;
-        // we don't need to waste time merging two same objects
+
+        // We don't need to waste time merging two same objects
         if (this == arrRefPts) {
             return;
         }
-        // merge the location set
-        locSet.addAll(pts.getLocSet());
 
-        // merge the elemPts if the current elemPts is null
+        // Merge the location by intersection
+        if (location != pts.getLocation()) {
+            location = null;
+        }
+
+        // Merge the elemPts if the current elemPts is null
         if (this.elePts == null) {
             this.elePts = arrRefPts.getElePts();
         }
     }
 
     /**
-     * Override the equals method
-     * Note that we only need to check whether locSet and  equals
+     * Append an allocation statement into the context of the location
+     * of current points-to set and element points-to set
+     * @param allocStmt     the newly added allocation statement
      */
+    public void addContext(UniqueStmt allocStmt) {
+        // add context for the location if it is not null
+        if (location != null) {
+            location.getContext().addAllocCallStmt(allocStmt);
+        }
+        // add context for the points-to set of the element
+        if (elePts != null) {
+            if (elePts instanceof ObjRefPointsToSet) {
+                ((ObjRefPointsToSet) elePts).addContext(allocStmt);
+            } else {
+                ((ArrRefPointsToSet) elePts).addContext(allocStmt);
+            }
+        }
+    }
+
+    @Override
+    public String toString() {
+        String str = "location:\n";
+        str += location.toString();
+        str += "\n";
+        if (elePts.getLocation() != null) {
+            str += elePts.getLocation();
+            str += "\n";
+        }
+        return str;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o)
@@ -124,7 +157,7 @@ public class ArrRefPointsToSet extends PointsToSet {
         if (o == null || getClass() != o.getClass())
             return false;
         ArrRefPointsToSet arrRefPointsToSet = (ArrRefPointsToSet) o;
-        return Objects.equals(locSet, arrRefPointsToSet.locSet)
+        return Objects.equals(location, arrRefPointsToSet.location)
                 && Objects.equals(elePts, arrRefPointsToSet.elePts);
     }
 
