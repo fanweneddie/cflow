@@ -10,46 +10,33 @@ import java.util.Set;
 
 public class Taint {
 
-    /**
-     * The type of taint transfer, which shows how this taint is generated
-     */
+    // the type of taint transfer, which shows how this taint is generated
     public enum TransferType {
-        // by assignment
-        Assign,
-        // by passing parameter in method call
-        Call_parameter,
-        // by passing base object in method call
-        Call_baseObject,
-        // by passing object-typed parameter in method return
-        Return_parameter,
-        // by passing return value in method return
-        Return_retVal,
-        // by passing base object in method return
-        Return_baseObject,
-        // by passing to identityStmt in callee
-        Identity,
-        // by passing to returnStmt in callee
-        Return,
-        // default type
-        None
+        // this taint is an init taint,
+        // or it is transferred by assignment
+        None,
+        // this taint is transferred by method call
+        Call,
+        // this taint is transferred by method return
+        Return
     }
 
-    // an emptyTaint without any info, simply for a default taint
     private static final Taint emptyTaint = new Taint(null, null, null);
 
     // the base of the tainted object reference
     private final Value plainValue;
     // the field of the tainted object reference(if it has a field)
     private final SootField field;
-    // the statement of that the tainted object is accessed at
+    // the statement that this taint is created
     private final UniqueStmt uniqueStmt;
-    // the method that the corresponding statement is in
+    // the method that uniqueStmt is in
     private final SootMethod method;
-    // the successors of the current taint, which is an open list for dfs in path reconstruction
+    // the successors of this taint,
+    // which is an open list for dfs in path reconstruction
     private final Set<Taint> successors;
-    // the type of taint transfer, which shows how this taint is generated
+    // the type of transfer to create this taint
     private final TransferType transferType;
-    // whether the current taint reaches a sink
+    // whether the current taint has reached the sink
     private boolean isSink = false;
 
     public static Taint getEmptyTaint() {
@@ -73,7 +60,7 @@ public class Taint {
         Taint newTaint = new Taint(v, uniqueStmt, method);
         // we use taint cache to avoid using repetitious taints.
         // that is, if a taint with identical value, uniqueStmt and method has been created before,
-        // then we can use that old taint instead of the new taint
+        // then we can use that old taint instead of the new taint.
         // (btw, the old taint can be indexed by new taint because new taint has the same hashcode as old taint)
         if (taintCache.containsKey(newTaint)) {
             newTaint = taintCache.get(newTaint);
@@ -129,7 +116,7 @@ public class Taint {
     }
 
     /**
-     * Shows whether this taint taints value v
+     * Shows whether this taint taints value v.
      * @param v         the value to be checked, which can be expression or reference to object
      * @return          true iff this taint taints value v
      */
@@ -150,7 +137,7 @@ public class Taint {
     }
 
     /**
-     * Shows whether this taint taints expression e
+     * Shows whether this taint taints expression e.
      * @param e         the expression to be checked,
      *                  which can be operated by binary, unary, cast and instanceof operator
      * @return          true iff this taint taints expression e
@@ -178,7 +165,7 @@ public class Taint {
     }
 
     /**
-     * Shows whether this taint taints reference r
+     * Shows whether this taint taints reference r.
      * @param r         the reference to be checked,
      *                  which can be a reference to an instance or an array
      * @return          true iff this taint taints reference r
@@ -197,29 +184,21 @@ public class Taint {
         return false;
     }
 
-    /**
-     * a default constructor of Taint
-     * create a taint on value at uniqueStmt in method, its transferType is None in default
-     * @param value         the value that the taint is on
-     * @param uniqueStmt    the statement context of the taint
-     * @param method        the method context of the taint
-     */
     private Taint(Value value, UniqueStmt uniqueStmt, SootMethod method) {
         this(null, value, uniqueStmt, method, TransferType.None);
     }
 
     /**
-     * a complete constructor of Taint
-     * create a taint on value at uniqueStmt in method,
-     * which is propagated from taint transferFrom by the way of transferType
+     * A complete constructor of Taint.
+     * Creates a taint on value at uniqueStmt in method,
+     * which is propagated from taint transferFrom by the way of transferType.
      * @param transferFrom  the taint from which to transfer
      * @param value         the value that the taint is on
      * @param uniqueStmt    the statement context of the taint
      * @param method        the method context of the taint
      * @param transferType  the type of method context transfer
      */
-    private Taint(Taint transferFrom, Value value, UniqueStmt uniqueStmt,
-                  SootMethod method, TransferType transferType) {
+    private Taint(Taint transferFrom, Value value, UniqueStmt uniqueStmt, SootMethod method, TransferType transferType) {
         this.uniqueStmt = uniqueStmt;
         this.method = method;
         this.successors = new HashSet<>();
@@ -289,19 +268,6 @@ public class Taint {
 
     public void setSink() {
         isSink = true;
-    }
-
-    // check whether the taint is at call site
-    public boolean isAtCallSite() {
-        return transferType == TransferType.Call_baseObject ||
-                transferType == TransferType.Call_parameter;
-    }
-
-    // check whether the taint is at return site
-    public boolean isAtReturnSite() {
-        return transferType == TransferType.Return_baseObject ||
-                transferType == TransferType.Return_retVal ||
-                transferType == TransferType.Return_parameter;
     }
 
     @Override
