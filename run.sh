@@ -2,7 +2,7 @@
 
 intra=""
 spark=""
-while getopts ":a::i::s" opt; do
+while getopts ":a::i::s::p" opt; do
 	case ${opt} in
 		a) 
 			target=$OPTARG
@@ -12,6 +12,9 @@ while getopts ":a::i::s" opt; do
       ;;
     s)
       spark="-spark"
+      ;;
+    p)
+      points_to="-points-to"
       ;;
 		*)
 			echo "Usage: run.sh -a x (x is any or a combination of the following options separated by ',')"
@@ -31,4 +34,4 @@ done
 
 rm tmp.txt
 export MAVEN_OPTS=-Xmx6g
-mvn exec:java -Dexec.mainClass="Main" -Dexec.args="-o tmp.txt -a ${target} ${intra} ${spark}" -e
+mvn exec:java -Dexec.mainClass="Main" -Dexec.args="-o tmp.txt -a ${target} ${intra} ${spark} ${points_to}" -e
