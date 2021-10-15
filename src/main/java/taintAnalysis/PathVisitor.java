@@ -6,6 +6,9 @@ import taintAnalysis.utility.PhantomRetStmt;
 
 import java.util.*;
 
+/**
+ * This class uses DFS to do path reconstruction
+ */
 public class PathVisitor {
 
     private final long threshold;
@@ -59,8 +62,7 @@ public class PathVisitor {
         successors.sort(Comparator.comparing(Taint::toString).thenComparing(Taint::getCount));
         for (Taint successor : successors) {
             Taint.TransferType transferType = t.getTransferType();
-            if (transferType == Taint.TransferType.Call_baseObject
-                    || transferType == Taint.TransferType.Call_parameter) {
+            if (transferType == Taint.TransferType.Call) {
                 // Visit callee
                 SootMethod callee = successor.getMethod();
                 if (!methodSet.contains(callee)) {
