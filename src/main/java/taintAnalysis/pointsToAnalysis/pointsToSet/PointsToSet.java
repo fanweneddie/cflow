@@ -1,64 +1,82 @@
 package taintAnalysis.pointsToAnalysis.pointsToSet;
 
+import soot.SootField;
+import taintAnalysis.UniqueStmt;
 import taintAnalysis.pointsToAnalysis.AbstractLoc;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.List;
+import java.util.Objects;
 
-/*
+/**
 *  This class describes the points-to set of a reference.
 *  It has two subclasses: ObjRefPointsToSet and ArrRefPointsToSet,
 *  which represents the points-to set of a reference to an object and an array, respectively.
 */
 public abstract class PointsToSet {
 
-    // location set that the variable points to
-    protected final Set<AbstractLoc> locSet;
+    // The location that the variable points to
+    protected AbstractLoc location;
 
-    /* Several naive constructors for PointsToSet */
-    public PointsToSet() { this.locSet = new HashSet<>(); }
+    /** Several naive constructors for PointsToSet */
+    public PointsToSet() { this.location = null; }
 
-    public PointsToSet(Set<AbstractLoc> locSet) { this.locSet = locSet; }
+    public PointsToSet(AbstractLoc location) { this.location = new AbstractLoc(location); }
 
-    public PointsToSet(AbstractLoc abstractLoc) {
-        this.locSet = new HashSet<>();
-        locSet.add(abstractLoc);
+    public AbstractLoc getLocation() { return location; }
+
+    public void setLocation(AbstractLoc location) {
+        this.location = location;
     }
 
-    public Set<AbstractLoc> getLocSet() { return locSet; }
-
     /**
-     * Add an abstract location into the location set of current variable
-     * We will not add a null abstractLoc into the set
-     * @param abstractLoc       the abstract location to be added into
-     * @return   true if the abstract location is successfully added into locSet
+     * Get the points-to set of a field in an object, or an element in an array
+     * @param accessPath        the access path of a field or an element
+     * @return                  the corresponding points-to set,
+     *                          or null of the accessPath is broken
      */
-    public boolean addToPts(AbstractLoc abstractLoc) {
-        if (abstractLoc == null) {
-            return false;
+    public PointsToSet getFieldOrElePts(List<SootField> accessPath) {
+        // The points-to set of a field or an element
+        PointsToSet fieldOrElePts = this;
+        // Access the fields based on the accessPath
+        for (SootField fieldOrEle : accessPath) {
+            // Check whether fieldOrEle is null.
+            // If so, it means that we are accessing an element in array
+            // 1. Access a field
+            if (fieldOrEle != null) {
+                assert(fieldOrElePts instanceof ObjRefPointsToSet);
+                fieldOrElePts = ((ObjRefPointsToSet) fieldOrElePts).getFieldPtm().get(fieldOrEle);
+            }
+            // 2. Access an element
+            else {
+                assert(fieldOrElePts instanceof ArrRefPointsToSet);
+                fieldOrElePts = ((ArrRefPointsToSet) fieldOrElePts).getElePts();
+            }
+            // The access path is broken
+            if (fieldOrElePts == null)
+                return null;
         }
-        return locSet.add(abstractLoc);
+        return fieldOrElePts;
     }
 
     /**
-     * Do a strong update to the current location set
-     * @param newLocSet        the new location set
-     */
-    public void updatePts(Set<AbstractLoc> newLocSet) {
-        if (newLocSet == null) {
-            return;
-        }
-        locSet.clear();
-        locSet.addAll(newLocSet);
-    }
-
-    /**
-     * Merge this PointsToSet with a given PointsToSet pts
-     * We first merge the location set
-     * And then we merge the PointsToSet of their field/element objects
-     * Finally, the result of merge is saved in this object
-     * @param pts       the given PointsToSet
+     * Merge this points-to set with a given points-to set pts
+     * We first merge the location set,
+     * and then we merge the points-to set of their field/element objects.
+     * Finally, the result of merge is saved in this object.
+     * @param pts       the given points-to set
      */
     public abstract void merge(PointsToSet pts);
 
+    public abstract void addContext(UniqueStmt allocStmt);
+
+    /**
+     * Hash code only depends on location
+     */
+    @Override
+    public int hashCode() {
+        return Objects.hash(location);
+    }
+
+    @Override
+    public abstract boolean equals(Object o);
 }
