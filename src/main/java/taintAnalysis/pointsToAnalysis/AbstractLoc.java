@@ -1,47 +1,58 @@
 package taintAnalysis.pointsToAnalysis;
 
 import soot.Type;
-import soot.SootMethod;
-import soot.Value;
 
-import taintAnalysis.UniqueStmt;
-
+import java.util.Objects;
 
 /**
  * The abstract location on heap,
- * which is distinguished by allocation site and context
+ * which is distinguished by context
  */
 public class AbstractLoc {
-    // the method that the allocation site is in
-    private final SootMethod method;
-    // the context of method
+    // The context of the allocation statement
     private final Context context;
-    // the invoke statement of allocation.
-    private final UniqueStmt allocStmt;
-    // the type of object
-    private final Type type;
-    // an unknown abstract location for initialization
-    private static final AbstractLoc unknown = new AbstractLoc(null, null, null, null);
+    // The type of object
+    private Type type;
 
-    /**
-     * Constructor: construct an abstract location that is not in constant pool
-     * it is assumed that allocStmt is a call statement to init()
-     */
-    public AbstractLoc(SootMethod method, Context context, UniqueStmt allocStmt, Type type) {
-        this.method = method;
-        this.context = context;
-        this.allocStmt = allocStmt;
+    /** Naive constructor */
+    public AbstractLoc(Context context, Type type) {
+        this.context = new Context(context);
         this.type = type;
     }
 
-    public SootMethod getMethod() { return method; }
+    /** Copy constructor */
+    public AbstractLoc(AbstractLoc abstractLoc) {
+        this.context = new Context(abstractLoc.getContext());
+        this.type = abstractLoc.getType();
+    }
 
     public Context getContext() { return context; }
 
-    public UniqueStmt getAllocStmt() { return allocStmt; }
-
     public Type getType() { return type; }
 
-    public static AbstractLoc getKnown() { return unknown; }
+    public void setType(Type type) {
+        this.type = type;
+    }
+
+    @Override
+    public String toString() {
+        String str = "context:\n";
+        str += context.toString();
+        str += "\ntype:\n";
+        str += type.toString();
+        str += "\n";
+        return str;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o)
+            return true;
+        if (o == null || getClass() != o.getClass())
+            return false;
+        AbstractLoc abstractLoc = (AbstractLoc) o;
+        return Objects.equals(context, abstractLoc.context)
+                && type == abstractLoc.type;
+    }
 
 }
