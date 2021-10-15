@@ -10,6 +10,10 @@ import taintAnalysis.taintWrapper.ITaintWrapper;
 
 import java.util.*;
 
+/**
+ * A transformer for the whole process of backend(for intra-procedural analysis),
+ * which does dataflow analysis and gets the sources for testing.
+ */
 public class IntraAnalysisTransformer extends BodyTransformer {
 
     private final Logger logger = LoggerFactory.getLogger(getClass());
