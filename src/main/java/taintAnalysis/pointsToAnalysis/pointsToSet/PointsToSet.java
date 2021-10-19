@@ -1,11 +1,14 @@
 package taintAnalysis.pointsToAnalysis.pointsToSet;
 
-import soot.SootField;
+import soot.*;
+
 import taintAnalysis.UniqueStmt;
 import taintAnalysis.pointsToAnalysis.AbstractLoc;
+import taintAnalysis.Taint;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Map;
 
 /**
 *  This class describes the points-to set of a reference.
@@ -59,15 +62,29 @@ public abstract class PointsToSet {
     }
 
     /**
-     * Merge this points-to set with a given points-to set pts
-     * We first merge the location set,
-     * and then we merge the points-to set of their field/element objects.
-     * Finally, the result of merge is saved in this object.
-     * @param pts       the given points-to set
+     * Append an allocation or invoke statement into the call string of context
+     * @param allocStmt     the allocation to add
      */
-    public abstract void merge(PointsToSet pts);
-
     public abstract void addContext(UniqueStmt allocStmt);
+
+    /**
+     * set the location type of this points-to set to a new type
+     * We only do this type transform for refType.
+     * @param newType       the given new type
+     */
+    public void setLocationType(Type newType) {
+        // Special case
+        if (location == null || newType == null) {
+            return;
+        }
+        // Only for refTyoe
+        if (!(newType instanceof RefType) || !(location.getType() instanceof RefType)) {
+            return;
+        }
+        // Set type
+        location.setType(newType);
+    }
+
 
     /**
      * Hash code only depends on location
