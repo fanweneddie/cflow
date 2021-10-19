@@ -59,4 +59,9 @@ public class SparkInterface implements ConfigInterface {
         return null;
     }
 
+    @Override
+    public boolean isTestSink(InvokeExpr iexpr) {
+        return false;
+    }
+
 }
