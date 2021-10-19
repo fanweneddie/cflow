@@ -71,4 +71,9 @@ public class HadoopInterface implements ConfigInterface {
         return false;
     }
 
+    @Override
+    public boolean isTestSink(InvokeExpr iexpr) {
+        return false;
+    }
+
 }
