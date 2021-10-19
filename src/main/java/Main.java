@@ -47,7 +47,7 @@ public class Main {
         Option optionPA = Option.builder(null)
                 .required(false)
                 .desc("Run points-to analysis (for precision)")
-                .longOpt("points-to")
+                .longOpt("pointsTo")
                 .hasArg(false)
                 .build();
 
@@ -94,7 +94,7 @@ public class Main {
                 /* getting option intra */
                 run_intra = true;
             }
-            if (commandLine.hasOption("points-to")) {
+            if (commandLine.hasOption("pointsTo")) {
                 /* getting option points-to */
                 do_points_to = true;
             }
