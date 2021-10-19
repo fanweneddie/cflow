@@ -35,7 +35,11 @@ public class ArrRefPointsToSet extends PointsToSet {
         super();
         assertNotNull(arrRefPts);
         // Copy locSet
-        location = new AbstractLoc(arrRefPts.getLocation());
+        if (arrRefPts.getLocation() != null) {
+            location = new AbstractLoc(arrRefPts.getLocation());
+        } else {
+            location = null;
+        }
 
         // Copy element points-to set
         this.elePts = arrRefPts.getElePts();
@@ -85,40 +89,6 @@ public class ArrRefPointsToSet extends PointsToSet {
     public void setElePts(PointsToSet elemPts) { this.elePts = elemPts; }
 
     /**
-     * Merge this PointsToSet with a given PointsToSet pts.
-     * We just need to merge the location set.
-     * If the current elePts is null, we merge that points-to set;
-     * else, we don't need to change elePts for approximation.
-     * Finally, the result of merge is saved in this object.
-     * @param pts       the given PointsToSet, must be an ArrRefPointsToSet
-     */
-    public void merge(PointsToSet pts) {
-        // We have nothing to merge if pts is a null
-        if (pts == null) {
-            return;
-        }
-
-        // We only merge pts of the same type
-        assert(pts instanceof ArrRefPointsToSet);
-        ArrRefPointsToSet arrRefPts = (ArrRefPointsToSet) pts;
-
-        // We don't need to waste time merging two same objects
-        if (this == arrRefPts) {
-            return;
-        }
-
-        // Merge the location by intersection
-        if (location != pts.getLocation()) {
-            location = null;
-        }
-
-        // Merge the elemPts if the current elemPts is null
-        if (this.elePts == null) {
-            this.elePts = arrRefPts.getElePts();
-        }
-    }
-
-    /**
      * Append an allocation statement into the context of the location
      * of current points-to set and element points-to set
      * @param allocStmt     the newly added allocation statement
@@ -129,7 +99,7 @@ public class ArrRefPointsToSet extends PointsToSet {
             location.getContext().addAllocCallStmt(allocStmt);
         }
         // add context for the points-to set of the element
-        if (elePts != null) {
+        if (elePts != null && elePts != this) {
             if (elePts instanceof ObjRefPointsToSet) {
                 ((ObjRefPointsToSet) elePts).addContext(allocStmt);
             } else {
@@ -157,8 +127,7 @@ public class ArrRefPointsToSet extends PointsToSet {
         if (o == null || getClass() != o.getClass())
             return false;
         ArrRefPointsToSet arrRefPointsToSet = (ArrRefPointsToSet) o;
-        return Objects.equals(location, arrRefPointsToSet.location)
-                && Objects.equals(elePts, arrRefPointsToSet.elePts);
+        return Objects.equals(location, arrRefPointsToSet.location);
     }
 
 }
