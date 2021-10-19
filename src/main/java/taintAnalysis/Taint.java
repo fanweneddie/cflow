@@ -184,6 +184,18 @@ public class Taint {
         return false;
     }
 
+    /**
+     * Shows whether this taint taints the field of the given base
+     * @param base      the base of an instance field reference
+     * @return          true iff this taint taints the field of base
+     */
+    public boolean taintsField(Value base) {
+        if (base == null) {
+            return false;
+        }
+        return plainValue.equivTo(base) && field != null;
+    }
+
     private Taint(Value value, UniqueStmt uniqueStmt, SootMethod method) {
         this(null, value, uniqueStmt, method, TransferType.None);
     }
@@ -204,6 +216,8 @@ public class Taint {
         this.successors = new HashSet<>();
         this.transferType = transferType;
 
+        // Check the type of value
+        // 1. value is a reference to object field(e.g. a.f) or array element(e.g. a[i])
         if (value instanceof Ref) {
             // if value is of ref type, ignore the taint from which to transfer
             if (value instanceof InstanceFieldRef) {
@@ -216,11 +230,16 @@ public class Taint {
                 this.plainValue = value;
                 this.field = null;
             }
-        } else if (transferFrom != null) {
+        }
+        // 2. value is not a reference and comes from the plainValue of taint `transferFrom`.
+        // So actually the real value may be a reference(That depends on `transferFrom`)
+        else if (transferFrom != null) {
             // for a non-ref object-typed value, transfer taint from t
             this.plainValue = value;
             this.field = transferFrom.getField();
-        } else {
+        }
+        // 3. value is not a reference(e.g. a)
+        else {
             this.plainValue = value;
             this.field = null;
         }
@@ -280,7 +299,7 @@ public class Taint {
         }
 
         str += plainValue + (field != null ? "." + field : "") +
-                " in " + uniqueStmt + " in method " + method;
+                " in " + uniqueStmt.getStmt() + " in method " + method;
 
         return str;
     }
