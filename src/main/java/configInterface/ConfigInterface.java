@@ -13,4 +13,6 @@ public interface ConfigInterface {
 
     Value getDefaultValue(InvokeExpr iexpr);
 
+    // Whether the invoke is a sink in test
+    boolean isTestSink(InvokeExpr iexpr);
 }
