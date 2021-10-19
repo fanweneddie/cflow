@@ -3,13 +3,12 @@ package taintAnalysis.pointsToAnalysis.pointsToSet;
 import soot.*;
 import soot.util.Chain;
 
+import taintAnalysis.Taint;
 import taintAnalysis.UniqueStmt;
 import taintAnalysis.pointsToAnalysis.AbstractLoc;
 import taintAnalysis.pointsToAnalysis.Context;
 
 import java.util.*;
-
-import static assertion.Assert.assertNotNull;
 
 /**
 * This class describes a points-to set of a reference to an object.
@@ -20,28 +19,40 @@ public class ObjRefPointsToSet extends PointsToSet {
 
     // The map from variables to points-to set of the field object
     private final Map<SootField, PointsToSet> fieldPtm;
+    // The set of taints that taint this points-to set or the field of this points-to set
+    // It is modified in taint analysis
+    protected final Map<SootField, Taint> taints;
 
     /** Several naive constructors for ObjRefPointsToSet */
     public ObjRefPointsToSet() {
         super();
         this.fieldPtm = new HashMap<>();
+        this.taints = new HashMap<>();
     }
 
     public ObjRefPointsToSet(AbstractLoc location) {
         super(location);
         this.fieldPtm = new HashMap<>();
+        this.taints = new HashMap<>();
     }
 
-    /** Copy constructor */
+    /** Copy constructor.
+     * We assert that objRefPts is not null
+     */
     public ObjRefPointsToSet(ObjRefPointsToSet objRefPts) {
         super();
-        assertNotNull(objRefPts);
         // copy location
-        location = new AbstractLoc(objRefPts.getLocation());
+        if (objRefPts.getLocation() != null) {
+            location = new AbstractLoc(objRefPts.getLocation());
+        } else {
+            location = null;
+        }
 
         // copy fieldPtm
         this.fieldPtm = new HashMap<>();
         fieldPtm.putAll(objRefPts.getFieldPtm());
+        // No need to copy taints since it is empty in points-to analysis
+        this.taints = new HashMap<>();
     }
 
     /**
@@ -51,12 +62,11 @@ public class ObjRefPointsToSet extends PointsToSet {
      */
     public ObjRefPointsToSet(Context context, Type objectType) {
         super();
-        // Precondition check
-        assert(objectType instanceof RefType);
 
-        // Initialize the location for the base object and points-to map for fields
+        // Initialize the fields
         this.location = new AbstractLoc(context, objectType);
         this.fieldPtm = new HashMap<>();
+        this.taints = new HashMap<>();
 
         // For each field, if it is a reference type, we set its points-to set.
         // Also, for fields of each field, we set their points-to set as nullObjRefPts as an approximation
@@ -81,66 +91,12 @@ public class ObjRefPointsToSet extends PointsToSet {
     public ObjRefPointsToSet(AbstractLoc location, Map<SootField, PointsToSet> fieldPtm) {
         super(location);
         this.fieldPtm = fieldPtm;
+        this.taints = new HashMap<>();
     }
 
     public Map<SootField, PointsToSet> getFieldPtm() { return fieldPtm; }
 
-    /**
-     * Merge this ObjRefPointsToSet with a given ObjRefPointsToSet.
-     * We first merge the location set.
-     * Then we merge the points-to set of their field objects.
-     * Finally, the result of merge is saved in this object.
-     * @param pts           the given points-to set, must be an ObjRefPointsToSet
-     */
-    public void merge(PointsToSet pts) {
-        // We have nothing to merge if pts is a null
-        if (pts == null) {
-            return;
-        }
-
-        // We only merge pts of the same type
-        assert(pts instanceof ObjRefPointsToSet);
-        ObjRefPointsToSet objRefPts = (ObjRefPointsToSet) pts;
-
-        // We don't need to waste time merging two same objects
-        if (this == objRefPts) {
-            return;
-        }
-
-        // Merge the location by intersection
-        if (location != pts.getLocation()) {
-            location = null;
-        }
-
-        // Recursively merge PointsToSet of fields
-        for (Map.Entry<SootField, PointsToSet> entry : objRefPts.getFieldPtm().entrySet()) {
-            // Get each field and its points-to set in objRefPts
-            SootField field = entry.getKey();
-            PointsToSet fieldPts = entry.getValue();
-            // Check whether the field is recorded in this fieldPtm
-            // 1. Merge the field points-to set
-            if (fieldPtm.containsKey(field)) {
-                assert (fieldPtm.get(field).getClass() == fieldPts.getClass());
-                if (fieldPtm.get(field) == null) {
-                    fieldPtm.put(field, fieldPts);
-                } else {
-                    fieldPtm.get(field).merge(fieldPts);
-                }
-            }
-            // 2. Add the points-to set for the field
-            else {
-                PointsToSet newPts;
-                if (fieldPts instanceof ObjRefPointsToSet) {
-                    newPts = new ObjRefPointsToSet((ObjRefPointsToSet)fieldPts);
-                } else if (fieldPts instanceof ArrRefPointsToSet) {
-                    newPts = new ArrRefPointsToSet((ArrRefPointsToSet)fieldPts);
-                } else {
-                    newPts = null;
-                }
-                fieldPtm.put(field, newPts);
-            }
-        }
-    }
+    public Map<SootField, Taint> getTaintSet() { return taints; }
 
     /**
      * Append an allocation statement into the context of the location
@@ -155,7 +111,7 @@ public class ObjRefPointsToSet extends PointsToSet {
         // add context for the points-to set of each field
         for (Map.Entry<SootField, PointsToSet> entry : fieldPtm.entrySet()) {
             PointsToSet fieldPts = entry.getValue();
-            if (fieldPts != null) {
+            if (fieldPts != null && fieldPts != this) {
                 if(fieldPts instanceof ObjRefPointsToSet) {
                     ((ObjRefPointsToSet) fieldPts).addContext(allocStmt);
                 } else {
@@ -199,6 +155,47 @@ public class ObjRefPointsToSet extends PointsToSet {
         return str;
     }
 
+    /**
+     * Add a taint into taints.
+     * Before calling this method,
+     * we should assure that the value of taint must be a instanceRef,
+     * and the base value must points to the base of this points-to set
+     * @param taint     the taint to be added
+     */
+    public void addTaint(Taint taint) {
+        // Precondition check
+        assert(taint.getPlainValue() != null);
+        assert(taint.getField() != null);
+
+        // Note that one field can only have one corresponding taint
+        taints.put(taint.getField(), taint);
+    }
+
+    /**
+     * Remove a taint on taints.
+     * Before calling this method,
+     * we should assure that the value of taint must be a instanceRef,
+     * and the base value must points to the base of this points-to set
+     * @param taint     the taint to be added
+     */
+    public void removeTaint(Taint taint) {
+        // Precondition check
+        assert(taint.getPlainValue() != null);
+        assert(taint.getField() != null);
+
+        // Note that one field can only have one corresponding taint
+        taints.remove(taint.getField());
+    }
+
+    /**
+     * Get a taint on a field points-to set.
+     * @param field     the field of the potential taint
+     */
+    public Taint getTaint(SootField field) {
+        // Note that one field can only have one corresponding taint
+        return taints.get(field);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o)
@@ -206,7 +203,6 @@ public class ObjRefPointsToSet extends PointsToSet {
         if (o == null || getClass() != o.getClass())
             return false;
         ObjRefPointsToSet objRefPointsToSet = (ObjRefPointsToSet) o;
-        return Objects.equals(location, objRefPointsToSet.location)
-                && Objects.equals(fieldPtm, objRefPointsToSet.fieldPtm);
+        return Objects.equals(location, objRefPointsToSet.location);
     }
 }
