@@ -4,11 +4,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import soot.*;
 import soot.jimple.*;
+import soot.jimple.internal.JInstanceFieldRef;
 import soot.jimple.toolkits.callgraph.CallGraph;
 import soot.jimple.toolkits.callgraph.Edge;
 import soot.toolkits.graph.ExceptionalUnitGraph;
 import soot.toolkits.scalar.ForwardFlowAnalysis;
 import taintAnalysis.pointsToAnalysis.MethodInfo;
+import taintAnalysis.pointsToAnalysis.pointsToSet.ObjRefPointsToSet;
+import taintAnalysis.pointsToAnalysis.pointsToSet.PointsToSet;
 import taintAnalysis.sourceSinkManager.ISourceSinkManager;
 import taintAnalysis.taintWrapper.ITaintWrapper;
 import taintAnalysis.utility.PhantomIdentityStmt;
@@ -43,7 +46,8 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
     // which can be viewed as a context with 1-approximation
     private final Taint entryTaint;
     // The global program states,
-    // which is a set of discovered taints in each method in each context
+    // which is a set of discovered taints for this object, return value and parameters
+    // in each method in each context
     private final Map<SootMethod, Map<Taint, List<Set<Taint>>>> methodSummary;
     // The program states in current method
     private final Map<Taint, List<Set<Taint>>> currMethodSummary;
@@ -62,6 +66,11 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
     // The points-to info of all methods,
     // It is empty if we disable use_points_to
     private final Map<SootMethod, MethodInfo> globalMethodInfo;
+    // The points-to info of current methods,
+    // It is null if we disable use_points_to
+    private final MethodInfo currMethodInfo;
+    // The instance reference use info for all sink methods
+    private final Map<SootMethod, Map<JInstanceFieldRef, Boolean>> globalSinkRefUseInfo;
     // Three data structures below are used for the initialization of uniqueStmt
     // It stores the overall count number of string of each statement
     private final Map<String, Integer> stmtStrCounter;
@@ -72,8 +81,8 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
 
     public TaintFlowAnalysis(Body body, ISourceSinkManager sourceSinkManager) {
         this(body, sourceSinkManager, Taint.getEmptyTaint(), new HashMap<>(),
-                new HashMap<>(), null, false,
-                new HashMap<>(), new HashMap<>(), new HashMap<>(), new HashMap<>());
+                new HashMap<>(), null, false, new HashMap<>(), new HashMap<>(),
+                new HashMap<>(), new HashMap<>(), new HashMap<>());
     }
 
     /** The constructor for intra-procedural analysis */
@@ -84,7 +93,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                              Map<SootMethod, Map<Taint, Taint>> methodTaintCache,
                              ITaintWrapper taintWrapper) {
         this(body, sourceSinkManager, entryTaint, methodSummary, methodTaintCache,
-                taintWrapper, false, new HashMap<>(),
+                taintWrapper, false, new HashMap<>(), new HashMap<>(),
                 new HashMap<>(), new HashMap<>(), new HashMap<>());
     }
 
@@ -99,6 +108,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                              ITaintWrapper taintWrapper,
                              boolean use_points_to,
                              Map<SootMethod, MethodInfo> globalMethodInfo,
+                             Map<SootMethod, Map<JInstanceFieldRef, Boolean>> globalSinkRefUseInfo,
                              Map<String, Integer> stmtStrCounter,
                              Map<Stmt, Integer> countedStmtCache,
                              Map<UniqueStmt, UniqueStmt> uniqueStmtCache) {
@@ -115,6 +125,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         this.phantomRetStmt = PhantomRetStmt.getInstance(method);
         this.use_points_to = use_points_to;
         this.globalMethodInfo = globalMethodInfo;
+        this.globalSinkRefUseInfo = globalSinkRefUseInfo;
         this.stmtStrCounter = stmtStrCounter;
         this.countedStmtCache = countedStmtCache;
         this.uniqueStmtCache = uniqueStmtCache;
@@ -125,6 +136,8 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         assertNotNull(entryTaint);
         assertNotNull(methodSummary);
         assertNotNull(methodTaintCache);
+        assertNotNull(globalMethodInfo);
+        assertNotNull(globalSinkRefUseInfo);
 
         // Initialize methodSummary and methodTaintCache for current method (if not done yet)
         methodSummary.putIfAbsent(method, new HashMap<>());
@@ -141,6 +154,13 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                 summary.add(new HashSet<>());
             }
             this.currMethodSummary.put(entryTaint, summary);
+        }
+
+        // Get the points-to info of current method
+        if (this.globalMethodInfo.containsKey(method)) {
+            this.currMethodInfo = globalMethodInfo.get(method);
+        } else {
+            this.currMethodInfo = null;
         }
     }
 
@@ -175,14 +195,14 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         out.addAll(in);
 
         Stmt stmt = (Stmt) unit;
-        // get the uniqueStmt of the current statement
+        // Get the uniqueStmt of the current statement
         UniqueStmt uniqueStmt = generateUniqueStmt(stmt);
 
         if (stmt instanceof AssignStmt) {
             visitAssign(in, uniqueStmt, out);
         }
 
-        // note that source is detected in method visitAssign()
+        // Note that source is detected in method visitAssign()
         if (stmt instanceof InvokeStmt) {
             InvokeExpr invoke = stmt.getInvokeExpr();
             if (!sourceSinkManager.isSource(stmt)) {
@@ -216,6 +236,8 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         // KILL
         for (Taint t : in) {
             if (t.taints(leftOp)) {
+                // remove the taint on points-to set of its base
+                removeTaintOnPointsToSet(t, uniqueStmt);
                 out.remove(t);
             }
         }
@@ -227,6 +249,8 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
             // 1. Create a new taint from source
             if (sourceSinkManager.isSource(stmt)) {
                 Taint newTaint = Taint.getTaintFor(null, leftOp, uniqueStmt, method, currTaintCache);
+                // Try to add the new taint into the corresponding points-to set
+                taintPointsToSet(newTaint, uniqueStmt);
                 sources.add(newTaint);
                 out.add(newTaint);
             }
@@ -237,19 +261,43 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         }
         // 2. Transfer a taint from right operand to left operand
         else {
+            // Explicit taint flow
             for (Taint t : in) {
                 if (t.taints(rightOp)) {
                     Taint newTaint;
-                    // 1. Taint the whole object of left operand
-                    // ?????
+                    // 1. Taint the whole object of left operand.
+                    // If left operand is a primitive type(e.g. a or b.f where a and f are int),
+                    // then we just need to taint left operand itself(a or b.f).
+                    // If right operand is a reference to a field(e.g. c.f)
+                    // then left operand must be a non ref type(e.g. a), so we just taint it.
                     if (leftOp.getType() instanceof PrimType || rightOp instanceof InstanceFieldRef) {
                         newTaint = Taint.getTaintFor(t, leftOp, uniqueStmt, method, currTaintCache);
                     }
-                    // 2. Taint the specific field of left operand
+                    // 2. Taint the specific field of left operand.
+                    // Left operand must be a ref type.
+                    // If it is a field ref(e.g. a.f), then we can taint a.f;
+                    // If it is an array element ref(e.g. a[i]), then we can taint a;
+                    // If it is not a ref(e.g. a), we may taint it or taint its field based last taint
                     else {
                         newTaint = Taint.getTransferredTaintFor(
                                 t, leftOp, uniqueStmt, method, currTaintCache, Taint.TransferType.None);
                     }
+                    // Try to add the new taint into the corresponding points-to set
+                    taintPointsToSet(newTaint, uniqueStmt);
+                    out.add(newTaint);
+                }
+            }
+
+            // Implicit taint flow(by alias)
+            if (rightOp instanceof InstanceFieldRef) {
+                InstanceFieldRef rightOpRef = ((InstanceFieldRef) rightOp);
+                // Get the new taint from alias
+                Taint aliasTaint = getTaintOnPointsToSet(rightOpRef, uniqueStmt);
+                if (aliasTaint != null && in.contains(aliasTaint)) {
+                    Taint newTaint = Taint.getTaintFor(aliasTaint,
+                            leftOp, uniqueStmt, method, currTaintCache);
+                    // Try to add the new taint into the corresponding points-to set
+                    taintPointsToSet(newTaint, uniqueStmt);
                     out.add(newTaint);
                 }
             }
@@ -266,8 +314,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
      */
     private void visitInvoke(Set<Taint> in, UniqueStmt uniqueStmt, InvokeExpr invoke, Set<Taint> out) {
         Stmt stmt = uniqueStmt.getStmt();
-        SootMethod calleeMethod = invoke.getMethod();
-        assertNotNull(calleeMethod);
+        SootMethod calleeMethod = getPreciseCalleeMethod(uniqueStmt, invoke);
 
         // Check if taint wrapper applies
         if (taintWrapper != null && taintWrapper.supportsCallee(calleeMethod)) {
@@ -275,25 +322,16 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
             Set<Taint> genSet = new HashSet<>();
             taintWrapper.genTaintsForMethodInternal(in, uniqueStmt, method, killSet, genSet, currTaintCache);
             for (Taint t : killSet) {
+                // remove the taint on points-to set of its base
+                removeTaintOnPointsToSet(t, uniqueStmt);
                 out.remove(t);
             }
             for (Taint t : genSet) {
+                // Try to add the new taint into the corresponding points-to set
+                taintPointsToSet(t, uniqueStmt);
                 out.add(t);
             }
             return;
-        }
-
-        // Get all possible callees for this call site
-        List<SootMethod> methods = new ArrayList<>();
-        methods.add(calleeMethod);
-        if (cg != null) {
-            for (Iterator<Edge> it = cg.edgesOutOf(stmt); it.hasNext(); ) {
-                Edge edge = it.next();
-                SootMethod sm = edge.tgt();
-                if (calleeMethod.getName().equals(sm.getName())) {
-                    methods.add(sm);
-                }
-            }
         }
 
         // Get the base object of this invocation in caller (if applies)
@@ -308,114 +346,101 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
             retVal = ((AssignStmt) stmt).getLeftOp();
         }
 
-        // Compute KILL and GEN
-        List<Set<Taint>> killSets = new ArrayList<>();
-        List<Set<Taint>> genSets = new ArrayList<>();
-        for (SootMethod callee : methods) {
-            if (!callee.hasActiveBody()) {
-                logger.debug("No active body for callee {} in {}", callee, method);
-                continue;
+        if (!calleeMethod.hasActiveBody()) {
+            logger.debug("No active body for callee {} in {}", calleeMethod, method);
+            return;
+        }
+
+        Body calleeBody = calleeMethod.getActiveBody();
+
+        // The set of taints that are generated and killed
+        Set<Taint> killSet = new HashSet<>();
+        Set<Taint> genSet = new HashSet<>();
+
+        // Get this object in callee (if exists)
+        Value calleeThisLocal = null;
+        if (invoke instanceof InstanceInvokeExpr) {
+            calleeThisLocal = calleeBody.getThisLocal();
+        }
+
+        // Initialize methodSummary and methodTaintCache for callee (if not done yet)
+        methodSummary.putIfAbsent(calleeMethod, new HashMap<>());
+        Map<Taint, List<Set<Taint>>> calleeSummary = methodSummary.get(calleeMethod);
+        methodTaintCache.putIfAbsent(calleeMethod, new HashMap<>());
+        Map<Taint, Taint> calleeTaintCache = methodTaintCache.get(calleeMethod);
+
+        // Initialize the empty taint summary for callee (if not done yet)
+        // Summary list format: idx 0: (set of taints on) base, 1: retVal, 2+: parameters
+        if (!calleeSummary.containsKey(Taint.getEmptyTaint())) {
+            changed = true;
+            List<Set<Taint>> emptyTaintSummary = new ArrayList<>();
+            for (int i = 0; i < calleeMethod.getParameterCount() + 2; i++) {
+                emptyTaintSummary.add(new HashSet<>());
             }
-            Body calleeBody = callee.getActiveBody();
+            calleeSummary.put(Taint.getEmptyTaint(), emptyTaintSummary);
+        }
 
-            Set<Taint> killSet = new HashSet<>();
-            Set<Taint> genSet = new HashSet<>();
-            killSets.add(killSet);
-            genSets.add(genSet);
+        // Initialize the summary for this invocation by elements copied from the empty taint summary
+        List<Set<Taint>> summary = new ArrayList<>();
+        for (Set<Taint> taints : calleeSummary.get(Taint.getEmptyTaint())) {
+            Set<Taint> newTaints = new HashSet<>();
+            newTaints.addAll(taints);
+            summary.add(newTaints);
+        }
 
-            // Get this object in callee (if exists)
-            Value calleeThisLocal = null;
-            if (invoke instanceof InstanceInvokeExpr) {
-                calleeThisLocal = calleeBody.getThisLocal();
-            }
-
-            // Initialize methodSummary and methodTaintCache for callee (if not done yet)
-            methodSummary.putIfAbsent(callee, new HashMap<>());
-            Map<Taint, List<Set<Taint>>> calleeSummary = methodSummary.get(callee);
-            methodTaintCache.putIfAbsent(callee, new HashMap<>());
-            Map<Taint, Taint> calleeTaintCache = methodTaintCache.get(callee);
-
-            // Initialize the empty taint summary for callee (if not done yet)
-            // Summary list format: idx 0: (set of taints on) base, 1: retVal, 2+: parameters
-            if (!calleeSummary.containsKey(Taint.getEmptyTaint())) {
-                changed = true;
-                List<Set<Taint>> emptyTaintSummary = new ArrayList<>();
-                for (int i = 0; i < callee.getParameterCount() + 2; i++) {
-                    emptyTaintSummary.add(new HashSet<>());
-                }
-                calleeSummary.put(Taint.getEmptyTaint(), emptyTaintSummary);
-            }
-
-            // Initialize the summary for this invocation by elements copied from the empty taint summary
-            List<Set<Taint>> summary = new ArrayList<>();
-            for (Set<Taint> taints : calleeSummary.get(Taint.getEmptyTaint())) {
-                Set<Taint> newTaints = new HashSet<>();
-                newTaints.addAll(taints);
-                summary.add(newTaints);
-            }
-
-            // Compute KILL and gather summary info for this invocation
-            for (Taint t : in) {
-                // Process base object
-                if (base != null && t.taints(base)) {
-                    killSet.add(t);
-                    genCalleeEntryTaints(t, calleeThisLocal, uniqueStmt, calleeSummary, calleeTaintCache, summary, callee);
-                }
-
-                // Process parameters
-                for (int i = 0; i < invoke.getArgCount(); i++) {
-                    Value arg = invoke.getArg(i);
-                    if (t.taints(arg)) {
-                        // Check if the param is basic type (we should pass on the taint in that case)
-                        if (!(arg.getType() instanceof PrimType)) {
-                            killSet.add(t);
-                        }
-                        Local calleeParam = calleeBody.getParameterLocal(i);
-                        genCalleeEntryTaints(t, calleeParam, uniqueStmt, calleeSummary, calleeTaintCache, summary, callee);
-                    }
-                }
-            }
-            
-            // Compute GEN from the gathered summary info
+        // Compute KILL and gather summary info for this invocation
+        for (Taint t : in) {
             // Process base object
-            if (base != null) {
-                Set<Taint> baseTaints = summary.get(0);
-                genSet.addAll(getTaintsFromInvokeSummary(baseTaints, base, uniqueStmt));
-            }
-
-            // Process return value
-            if (retVal != null) {
-                Set<Taint> retTaints = summary.get(1);
-                genSet.addAll(getTaintsFromInvokeSummary(retTaints, retVal, uniqueStmt));
+            if (base != null && t.taints(base)) {
+                killSet.add(t);
+                genCalleeEntryTaints(t, calleeThisLocal, uniqueStmt, calleeSummary, calleeTaintCache, summary, calleeMethod);
             }
 
             // Process parameters
             for (int i = 0; i < invoke.getArgCount(); i++) {
                 Value arg = invoke.getArg(i);
-                Set<Taint> argTaints = summary.get(2 + i);
-                genSet.addAll(getTaintsFromInvokeSummary(argTaints, arg, uniqueStmt));
+                if (t.taints(arg)) {
+                    // Check if the param is basic type (we should pass on the taint in that case)
+                    if (!(arg.getType() instanceof PrimType)) {
+                        killSet.add(t);
+                    }
+                    Local calleeParam = calleeBody.getParameterLocal(i);
+                    genCalleeEntryTaints(t, calleeParam, uniqueStmt, calleeSummary, calleeTaintCache, summary, calleeMethod);
+                }
             }
         }
 
-        // KILL the INTERSECTION of all kill sets
-        Set<Taint> killSet = new HashSet<>();
-        for (int i = 0; i < killSets.size(); i++) {
-            if (i == 0) {
-                killSet.addAll(killSets.get(0));
-            } else {
-                killSet.retainAll(killSets.get(i));
-            }
+        // Compute GEN from the gathered summary info
+        // Process base object
+        if (base != null) {
+            Set<Taint> baseTaints = summary.get(0);
+            genSet.addAll(getTaintsFromInvokeSummary(baseTaints, base, uniqueStmt));
         }
+
+        // Process return value
+        if (retVal != null) {
+            Set<Taint> retTaints = summary.get(1);
+            genSet.addAll(getTaintsFromInvokeSummary(retTaints, retVal, uniqueStmt));
+        }
+
+        // Process parameters
+        for (int i = 0; i < invoke.getArgCount(); i++) {
+            Value arg = invoke.getArg(i);
+            Set<Taint> argTaints = summary.get(2 + i);
+            genSet.addAll(getTaintsFromInvokeSummary(argTaints, arg, uniqueStmt));
+        }
+
+        // KILL
         for (Taint t : killSet) {
+            // remove the taint on points-to set of its base
+            removeTaintOnPointsToSet(t, uniqueStmt);
             out.remove(t);
         }
 
         // GEN the UNION of all gen sets
-        Set<Taint> genSet = new HashSet<>();
-        for (Set<Taint> s : genSets) {
-            genSet.addAll(s);
-        }
         for (Taint t : genSet) {
+            // We have added the new taint into the corresponding points-to set
+            // in method getTaintsFromInvokeSummary().
             out.add(t);
         }
     }
@@ -438,12 +463,17 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         // Generate caller taint at call site
         Taint callerTaint = Taint.getTransferredTaintFor(
                 t, t.getPlainValue(), uniqueStmt, method, currTaintCache, Taint.TransferType.Call);
+        // Try to add the new taint into the corresponding points-to set
+        taintPointsToSet(callerTaint, uniqueStmt);
 
         // Send caller taint to callee
         PhantomIdentityStmt phantomIdentityStmt = PhantomIdentityStmt.getInstance(callee);
         UniqueStmt uniquePhantomIdentityStmt = generateUniqueStmt(phantomIdentityStmt);
         Taint calleeTaint = Taint.getTransferredTaintFor(
                 callerTaint, calleeVal, uniquePhantomIdentityStmt, callee, calleeTaintCache);
+
+        // Try to add the new taint into the corresponding points-to set
+        taintPointsToSet(calleeTaint, uniqueStmt);
 
         // Receive callee taint summary for the sent caller taint
         if (calleeSummary.containsKey(calleeTaint)) {
@@ -477,6 +507,8 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         for (Taint t : taints) {
             Taint callerTaint = Taint.getTransferredTaintFor(
                     t, callerVal, uniqueStmt, method, currTaintCache, Taint.TransferType.Return);
+            // Try to add the new taint into the corresponding points-to set
+            taintPointsToSet(callerTaint, uniqueStmt);
             out.add(callerTaint);
         }
         return out;
@@ -491,7 +523,6 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
     private void visitReturn(Set<Taint> in, UniqueStmt uniqueStmt) {
         Stmt stmt = uniqueStmt.getStmt();
         // Get the local representing @this (if exists)
-        /// ???????
         Local thiz = null;
         if (!body.getMethod().isStatic()) {
             thiz = body.getThisLocal();
@@ -505,7 +536,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
 
         // Get the list of Locals representing the parameters (on LHS of IdentityStmt)
         List<Local> paramLocals = body.getParameterLocals();
-        // The discovered taints of this in current context of current method
+        // The discovered taints in current context of current method
         List<Set<Taint>> summary = currMethodSummary.get(entryTaint);
 
         // Do taint transfer
@@ -517,6 +548,9 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                 UniqueStmt uniquePhantomRetStmt = generateUniqueStmt(phantomRetStmt);
                 Taint newTaint = Taint.getTransferredTaintFor(
                         t, t.getPlainValue(), uniquePhantomRetStmt, method, currTaintCache);
+                // Try to add the new taint into the corresponding points-to set
+                taintPointsToSet(newTaint, uniqueStmt);
+
                 changed |= summary.get(0).add(newTaint);
             }
 
@@ -525,6 +559,9 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                 UniqueStmt uniquePhantomRetStmt = generateUniqueStmt(phantomRetStmt);
                 Taint newTaint = Taint.getTransferredTaintFor(
                         t, t.getPlainValue(), uniquePhantomRetStmt, method, currTaintCache);
+                // Try to add the new taint into the corresponding points-to set
+                taintPointsToSet(newTaint, uniqueStmt);
+
                 changed |= summary.get(1).add(newTaint);
             }
 
@@ -536,6 +573,9 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                     UniqueStmt uniquePhantomRetStmt = generateUniqueStmt(phantomRetStmt);
                     Taint newTaint = Taint.getTransferredTaintFor(
                             t, t.getPlainValue(), uniquePhantomRetStmt, method, currTaintCache);
+                    // Try to add the new taint into the corresponding points-to set
+                    taintPointsToSet(newTaint, uniqueStmt);
+
                     changed |= summary.get(2 + i).add(newTaint);
                 }
             }
@@ -554,31 +594,151 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         Stmt stmt = uniqueStmt.getStmt();
         if (!stmt.containsInvokeExpr()) return;
         InvokeExpr invoke = stmt.getInvokeExpr();
+        SootMethod sinkMethod = getPreciseCalleeMethod(uniqueStmt, invoke);
+        Body sinkBody = null;
+        if (sinkMethod.hasActiveBody()) {
+            sinkBody = sinkMethod.getActiveBody();
+        }
 
         Value base = null;
         if (invoke instanceof InstanceInvokeExpr) {
             base = ((InstanceInvokeExpr) invoke).getBase();
         }
 
-        for (Taint t : in) {
-            // Process base object
-            if (base != null && t.taints(base)) {
-                Taint sinkTaint = Taint.getTransferredTaintFor(
-                        t, t.getPlainValue(), uniqueStmt, method, currTaintCache);
-                sinkTaint.setSink();
-                sinks.add(sinkTaint);
-            }
+        // Get the summary of reference use for sink method
+        Map<JInstanceFieldRef, Boolean> sinkRefUseSummary;
+        if (globalSinkRefUseInfo.containsKey(sinkMethod)) {
+            sinkRefUseSummary = globalSinkRefUseInfo.get(sinkMethod);
+        } else {
+            sinkRefUseSummary = new HashMap<>();
+            globalSinkRefUseInfo.put(sinkMethod, sinkRefUseSummary);
+        }
 
-            // Process parameters
-            for (int i = 0; i < invoke.getArgCount(); i++) {
-                Value arg = invoke.getArg(i);
-                if (t.taints(arg)) {
-                    Taint sinkTaint = Taint.getTransferredTaintFor(
-                            t, t.getPlainValue(), uniqueStmt, method, currTaintCache);
-                    sinkTaint.setSink();
-                    sinks.add(sinkTaint);
+        // For taints whose tainted value may be used in sink callee
+        // (those taints should be propagated based on whether they are used in sink)
+        // potentialTaints stores the instanceRef they taint in sink callee
+        // fieldIsUsed records whether each instanceRef is used in sink callee
+        Map<Taint, JInstanceFieldRef> potentialTaints = new HashMap<>();
+        Map<JInstanceFieldRef, Boolean> fieldIsUsed = new HashMap<>();
+        // For taints whose tainted value must be used in sink callee
+        // (So they should be propagated),
+        // definiteTaints stores them
+        Set<Taint> definiteTaints = new HashSet<>();
+
+        for (Taint t : in) {
+            for (int i = -1; i < invoke.getArgCount(); i++) {
+                // callerValue can be base or parameter(at caller side),
+                // and it is a simple ref.
+                Value callerValue;
+                if (i == -1) {
+                    callerValue = base;
+                } else {
+                    callerValue = invoke.getArg(i);
+                }
+                // process taint and value based on how precise that taint taints value
+                if (callerValue != null && t.taints(callerValue)) {
+                    // Check whether t taints value precisely
+                    // 1. t taints a reference instance whose base is value
+                    // We will double-check whether taints in potentialTaints
+                    // can be propagated into sink later
+                    if (t.taintsField(callerValue)) {
+                        // We only consider propagating the taint when we can
+                        // analyze whether the field ref is used in callee
+                        if (sinkBody != null) {
+                            // callerValue can be base or parameter(at caller side),
+                            // and it is a simple ref.
+                            Value calleeValue;
+                            if (i == -1) {
+                                calleeValue = sinkBody.getThisLocal();
+                            } else {
+                                calleeValue = sinkBody.getParameterLocal(i);
+                            }
+                            // Generate the field reference in callee and record it
+                            JInstanceFieldRef ref = new JInstanceFieldRef(calleeValue, t.getField().makeRef());
+                            // Check whether ref is used in sink from summary
+                            // 1. No record, we should check the use of ref later
+                            if (!sinkRefUseSummary.containsKey(ref)) {
+                                potentialTaints.put(t, ref);
+                                fieldIsUsed.put(ref, Boolean.FALSE);
+                            }
+                            // 2. The ref must be used in sink callee
+                            // So we should propagate the taint later
+                            else if (sinkRefUseSummary.containsKey(ref)) {
+                                if (sinkRefUseSummary.get(ref) == Boolean.TRUE) {
+                                    definiteTaints.add(t);
+                                } else {
+                                    Taint sinkTaint = Taint.getTransferredTaintFor(
+                                            t, t.getPlainValue(), uniqueStmt, method, currTaintCache);
+                                }
+                            }
+                        } else {
+                            Taint sinkTaint = Taint.getTransferredTaintFor(
+                                    t, t.getPlainValue(), uniqueStmt, method, currTaintCache);
+                        }
+                    }
+                    // 2. t taints value precisely
+                    // So we should propagate the taint later
+                    // (We propose that value object will be used in sink)
+                    else {
+                        definiteTaints.add(t);
+                    }
                 }
             }
+        }
+
+
+
+        // Process potentialTaints
+        if (sinkBody != null && !fieldIsUsed.isEmpty()) {
+            // Leverage use boxes to do a flow-insensitive intra-procedural analysis
+            List<ValueBox> useBoxes = sinkBody.getUseBoxes();
+            for (ValueBox valueBox : useBoxes) {
+                // The used value in sink method
+                // Check whether fieldUseInfo has that value.
+                // If so, mark it as true.
+                Value useValue = valueBox.getValue();
+                if (useValue instanceof JInstanceFieldRef) {
+                    JInstanceFieldRef usedInstanceRef = (JInstanceFieldRef) useValue;
+                    for (JInstanceFieldRef InstanceRef : fieldIsUsed.keySet() ) {
+                        if (usedInstanceRef.equivTo(InstanceRef)) {
+                            fieldIsUsed.put(InstanceRef, Boolean.TRUE);
+                        }
+                    }
+                } else if (useValue instanceof Ref) {
+                    for (JInstanceFieldRef InstanceRef : fieldIsUsed.keySet() ) {
+                        if (useValue.equivTo(InstanceRef.getBase())) {
+                            fieldIsUsed.put(InstanceRef, Boolean.TRUE);
+                        }
+                    }
+                }
+
+            }
+
+            // Add sink taint if the ref is used in the method
+            for (Map.Entry<Taint, JInstanceFieldRef> entry : potentialTaints.entrySet()) {
+                Taint taint = entry.getKey();
+                JInstanceFieldRef ref = entry.getValue();
+                if (fieldIsUsed.get(ref) == Boolean.TRUE) {
+                    definiteTaints.add(taint);
+                } else {
+                    Taint sinkTaint = Taint.getTransferredTaintFor(
+                            taint, taint.getPlainValue(), uniqueStmt, method, currTaintCache);
+                }
+            }
+
+            // Record fieldIsUsed into summary
+            sinkRefUseSummary.putAll(fieldIsUsed);
+        }
+
+        // Propagate taints into sink
+        for (Taint taint : definiteTaints) {
+            Taint sinkTaint = Taint.getTransferredTaintFor(
+                    taint, taint.getPlainValue(), uniqueStmt, method, currTaintCache);
+            // Try to add the new taint into the corresponding points-to set
+            taintPointsToSet(sinkTaint, uniqueStmt);
+
+            sinkTaint.setSink();
+            sinks.add(sinkTaint);
         }
     }
 
@@ -659,30 +819,194 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                 count = count + 1;
                 stmtStrCounter.put(stmtStr, count);
             }
-            // 2. The string of that statement hasn't been counted
+            // 2. The string of that statement hasn't been counted,
             // so we set the new count as 1
             // and record it into stmtCounter
             else {
                 count = 1;
                 stmtStrCounter.put(stmtStr, count);
             }
-            // store the count id of that statement into countedStmtCache
+            // Store the count id of that statement into countedStmtCache
             countedStmtCache.put(stmt, count);
         }
 
-        // generate a new UniqueStmt
+        // Generate a new UniqueStmt
         UniqueStmt uniqueStmt = new UniqueStmt(stmt, count);
 
-        // the uniqueStmt has been stored in uniqueStmtCache, just get it from uniqueStmtCache
+        // The uniqueStmt has been stored in uniqueStmtCache, just get it from uniqueStmtCache
         if (uniqueStmtCache.containsKey(uniqueStmt)) {
             uniqueStmt = uniqueStmtCache.get(uniqueStmt);
         }
-        // the uniqueStmt has been stored in uniqueStmtCache, just put it into uniqueStmtCache
+        // The uniqueStmt has been stored in uniqueStmtCache, just put it into uniqueStmtCache
         else {
             uniqueStmtCache.put(uniqueStmt, uniqueStmt);
         }
 
         return uniqueStmt;
+    }
+
+    /**
+     * Add a new taint into the points-to set of its plainValue.
+     * The new taint may be added only if it is an instanceRef.
+     * @param newTaint          the new taint to be added
+     * @param uniqueStmt        the current program point,
+     *                          in order to get the points-to set from currMethodInfo
+     */
+    private void taintPointsToSet(Taint newTaint, UniqueStmt uniqueStmt) {
+        // The plain value(base) and field of the new taint
+        Value newTaintPlainValue = newTaint.getPlainValue();
+        SootField newTaintField = newTaint.getField();
+
+        // No alias problem for non instanceRef
+        if (newTaintField == null) {
+            return;
+        }
+
+        // Add newTaint into the points-to set of newTaintBase
+        if (currMethodInfo != null) {
+            Map<UniqueStmt, Map<Value, PointsToSet>> programStates
+                    = currMethodInfo.getProgramStates();
+            if (programStates != null) {
+                Map<Value, PointsToSet> programState = programStates.get(uniqueStmt);
+                if (programState != null) {
+                    PointsToSet basePts = programState.get(newTaintPlainValue);
+                    if (basePts instanceof ObjRefPointsToSet) {
+                        ((ObjRefPointsToSet) basePts).addTaint(newTaint);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Remove the taint on the points-to set of its plainValue.
+     * @param taint          the taint to be removed
+     * @param uniqueStmt        the current program point,
+     *                          in order to get the points-to set from currMethodInfo
+     */
+    private void removeTaintOnPointsToSet(Taint taint, UniqueStmt uniqueStmt) {
+        // The plain value(base) and field of the taint
+        Value newTaintPlainValue = taint.getPlainValue();
+        SootField newTaintField = taint.getField();
+
+        // No alias problem for non instanceRef
+        if (newTaintField == null) {
+            return;
+        }
+
+        // remove the taint on the points-to set of newTaintBase
+        if (currMethodInfo != null) {
+            Map<UniqueStmt, Map<Value, PointsToSet>> programStates
+                    = currMethodInfo.getProgramStates();
+            if (programStates != null) {
+                Map<Value, PointsToSet> programState = programStates.get(uniqueStmt);
+                if (programState != null) {
+                    PointsToSet basePts = programState.get(newTaintPlainValue);
+                    if (basePts instanceof ObjRefPointsToSet) {
+                        ((ObjRefPointsToSet) basePts).removeTaint(taint);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * get the taint on the points-to set of the base of an instanceRef .
+     * @param ref               the reference to an instance field
+     * @param uniqueStmt        the current program point,
+     *                          in order to get the points-to set from currMethodInfo
+     */
+    private Taint getTaintOnPointsToSet(InstanceFieldRef ref, UniqueStmt uniqueStmt) {
+        // The plain value(base) and field of the taint
+        Value base = ref.getBase();
+        SootField field = ref.getField();
+
+        // No alias problem for non instanceRef
+        if (field == null) {
+            return null;
+        }
+
+        // Get the taint on the points-to set of the field
+        Taint taint = null;
+        if (currMethodInfo != null) {
+            Map<UniqueStmt, Map<Value, PointsToSet>> programStates
+                    = currMethodInfo.getProgramStates();
+            if (programStates != null) {
+                Map<Value, PointsToSet> programState = programStates.get(uniqueStmt);
+                if (programState != null) {
+                    PointsToSet basePts = programState.get(base);
+                    if (basePts instanceof ObjRefPointsToSet) {
+                        taint = ((ObjRefPointsToSet) basePts).getTaint(field);
+                    }
+                }
+            }
+        }
+        return taint;
+    }
+
+    /** Check whether the given method is an init method */
+    private boolean isInitMethod(SootMethod method) {
+        return method.getName().equals("<init>");
+    }
+
+    /** Check whether the given method is an Object init method */
+    private boolean isObjectInitMethod(SootMethod method) {
+        return method.getSignature().equals("<java.lang.Object: void <init>()>");
+    }
+
+    /**
+     * Get the precise caller method of the invoke statement
+     * @param uniqueStmt        the current invoke statement
+     * @param invoke            the current invoke expression
+     * @return                  the precise callee method
+     */
+    private SootMethod getPreciseCalleeMethod(UniqueStmt uniqueStmt, InvokeExpr invoke) {
+        Stmt stmt = uniqueStmt.getStmt();
+        // Get the base type of this invocation in caller (if applies)
+        Value base = null;
+        RefType baseType = null;
+        if (invoke instanceof InstanceInvokeExpr) {
+            base = ((InstanceInvokeExpr) invoke).getBase();
+        }
+        if (base != null) {
+            // Get the points-to set of base to get its dynamic type
+            PointsToSet basePts = null;
+            if (currMethodInfo != null) {
+                Map<UniqueStmt, Map<Value, PointsToSet>> currProgramStates
+                        = currMethodInfo.getProgramStates();
+                if (currProgramStates != null) {
+                    Map<Value, PointsToSet> programState = currProgramStates.get(uniqueStmt);
+                    if (programState != null) {
+                        basePts = programState.get(base);
+                    }
+                }
+            }
+            // Get dynamic type of base(if possible)
+            if (basePts != null && basePts.getLocation() != null &&
+                    basePts.getLocation().getType() instanceof RefType) {
+                baseType = (RefType) basePts.getLocation().getType();
+            }
+            // Or we can get static declared type of base
+            else if (base.getType() instanceof RefType) {
+                baseType = (RefType) base.getType();
+            }
+        }
+
+        // Get callee method
+        // Use call graph to cope with polymorphism
+        SootMethod calleeMethod = invoke.getMethod();
+        // For non init method, we should find its precise callee
+        if (!isInitMethod(calleeMethod) && cg != null) {
+            for (Iterator<Edge> it = cg.edgesOutOf(stmt); it.hasNext(); ) {
+                Edge edge = it.next();
+                SootMethod sm = edge.tgt();
+                if (baseType != null && baseType.getSootClass() == sm.getDeclaringClass()) {
+                    calleeMethod = sm;
+                    break;
+                }
+            }
+        }
+        return calleeMethod;
     }
 
 }
