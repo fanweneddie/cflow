@@ -47,6 +47,11 @@ public class SourceSinkManager implements ISourceSinkManager {
             if (!callee.getDeclaringClass().isApplicationClass()) {
                 return true;
             }
+
+            // Only for testing
+            if (interfaces.isTestSink(expr)) {
+                return true;
+            }
         }
 
         // nothing found
