@@ -1,14 +1,11 @@
 package taintAnalysisTest;
 
-import org.junit.Assert;
+import assertion.Assert;
 import org.junit.Test;
 import soot.SootMethod;
 import soot.Value;
-import soot.jimple.ReturnStmt;
 import taintAnalysis.*;
-import taintAnalysis.pointsToAnalysis.AbstractLoc;
 import taintAnalysis.pointsToAnalysis.Context;
-import taintAnalysis.pointsToAnalysis.LibMethodWrapper;
 import taintAnalysis.pointsToAnalysis.pointsToSet.PointsToSet;
 import taintAnalysis.sourceSinkManager.ISourceSinkManager;
 import taintAnalysis.sourceSinkManager.SourceSinkManager;
@@ -21,37 +18,139 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static assertion.Assert.assertEquals;
+
 public class PointsToAnalysisTest extends TaintAnalysisTest {
     @Test
-    public void testInterTaintAnalysis() throws IOException {
+    public void testPointsToAnalysis() throws IOException {
         String[] cfg = Config.getCfg("test");
         List<String> srcPaths = Config.getSourcePaths(cfg);
         List<String> classPaths = Config.getClassPaths(cfg);
         ITaintWrapper taintWrapper = TaintWrapper.getDefault();
-        LibMethodWrapper libMethodWrapper = LibMethodWrapper.getDefault();
         ISourceSinkManager sourceSinkManager = new SourceSinkManager(Config.getInterface(cfg));
-        TaintAnalysisDriver driver = new TaintAnalysisDriver(sourceSinkManager, taintWrapper, libMethodWrapper);
-        InterAnalysisTransformer transformer = driver.runInterTaintAnalysis(srcPaths, classPaths, false, true);
-        Map<SootMethod, Map<Context, Map<UniqueStmt, Map<Value, PointsToSet>>>> methodSummary
-                = transformer.getPointsToMethodSummary();
-        int i = 0;
-        // test sleep
-        /*
+        TaintAnalysisDriver driver = new TaintAnalysisDriver(sourceSinkManager, taintWrapper);
+        InterAnalysisTransformer transformer = driver.runInterTaintAnalysis(srcPaths, classPaths,
+                true, true);
+        Map<SootMethod, Map<Taint, List<Set<Taint>>>> methodSummary
+                = transformer.getMethodSummary();
+        Map<Taint, List<List<Taint>>> pathsMap = transformer.getPathsMap();
+
+        // Test whether return value is tainted(with points-to option)
         for (SootMethod method : methodSummary.keySet()) {
-            if (method.toString().contains("main")) {
-                Map<Context, Map<UniqueStmt, Map<Value, Set<AbstractLoc>>>> contextSummary = methodSummary.get(method);
-                for (Context context : contextSummary.keySet()) {
-                    Map<UniqueStmt, Map<Value, Set<AbstractLoc>>> stmtSummary = contextSummary.get(context);
-                    for (UniqueStmt stmt : stmtSummary.keySet()) {
-                        if (stmt instanceof ReturnStmt) {
-                            Map<Value,Set<AbstractLoc>> valueSummary = stmtSummary.get(stmt);
-                            for (Value value : valueSummary.keySet()) {
-                            }
+            // 1. Test taints brought by alias
+            // If return value is tainted, then it is correct
+            if (method.toString().contains("aliasTest1")) {
+                Map<Taint, List<Set<Taint>>> currMethodSummary = methodSummary.get(method);
+                List<Set<Taint>> taintList = currMethodSummary.get(Taint.getEmptyTaint());
+                Set<Taint> retTaintSet = taintList.get(1);
+                assertEquals(1, retTaintSet.size());
+            }
+
+            if (method.toString().contains("aliasTest2")) {
+                Map<Taint, List<Set<Taint>>> currMethodSummary = methodSummary.get(method);
+                List<Set<Taint>> taintList = currMethodSummary.get(Taint.getEmptyTaint());
+                Set<Taint> retTaintSet = taintList.get(1);
+                assertEquals(1, retTaintSet.size());
+            }
+
+            // alias field depth = 2 cannot be passed
+            // because of our approximation
+            if (method.toString().contains("aliasTest3")) {
+                Map<Taint, List<Set<Taint>>> currMethodSummary = methodSummary.get(method);
+                List<Set<Taint>> taintList = currMethodSummary.get(Taint.getEmptyTaint());
+                Set<Taint> retTaintSet = taintList.get(1);
+                assertEquals(0, retTaintSet.size());
+            }
+
+            // 2. Test taints affected by polymorphism
+            if (method.toString().contains("polymorphismTest1")) {
+                Map<Taint, List<Set<Taint>>> currMethodSummary = methodSummary.get(method);
+                List<Set<Taint>> taintList = currMethodSummary.get(Taint.getEmptyTaint());
+                Set<Taint> retTaintSet = taintList.get(1);
+                assertEquals(0, retTaintSet.size());
+            }
+
+            if (method.toString().contains("polymorphismTest2")) {
+                Map<Taint, List<Set<Taint>>> currMethodSummary = methodSummary.get(method);
+                List<Set<Taint>> taintList = currMethodSummary.get(Taint.getEmptyTaint());
+                Set<Taint> retTaintSet = taintList.get(1);
+                assertEquals(1, retTaintSet.size());
+            }
+
+            if (method.toString().contains("polymorphismTest3")) {
+                Map<Taint, List<Set<Taint>>> currMethodSummary = methodSummary.get(method);
+                List<Set<Taint>> taintList = currMethodSummary.get(Taint.getEmptyTaint());
+                Set<Taint> retTaintSet = taintList.get(1);
+                assertEquals(1, retTaintSet.size());
+            }
+
+            if (method.toString().contains("polymorphismTest4")) {
+                Map<Taint, List<Set<Taint>>> currMethodSummary = methodSummary.get(method);
+                List<Set<Taint>> taintList = currMethodSummary.get(Taint.getEmptyTaint());
+                Set<Taint> retTaintSet = taintList.get(1);
+                assertEquals(0, retTaintSet.size());
+            }
+
+            // 3. Test array accuracy
+            if (method.toString().contains("arrayTest1")) {
+                Map<Taint, List<Set<Taint>>> currMethodSummary = methodSummary.get(method);
+                List<Set<Taint>> taintList = currMethodSummary.get(Taint.getEmptyTaint());
+                Set<Taint> retTaintSet = taintList.get(1);
+                assertEquals(1, retTaintSet.size());
+            }
+
+            if (method.toString().contains("arrayTest2")) {
+                Map<Taint, List<Set<Taint>>> currMethodSummary = methodSummary.get(method);
+                List<Set<Taint>> taintList = currMethodSummary.get(Taint.getEmptyTaint());
+                Set<Taint> retTaintSet = taintList.get(1);
+                assertEquals(0, retTaintSet.size());
+            }
+
+            // 4. Test sink check
+            if (method.getName().equals("SinkCheckTest1")) {
+                boolean findSink = false;
+                for(List<List<Taint>> taintList : pathsMap.values()) {
+                    for (List<Taint> taints : taintList) {
+                        int size = taints.size();
+                        Taint sinkTaint = taints.get(size - 1);
+                        if (sinkTaint.getMethod().toString().contains("SinkCheckTest1")) {
+                            findSink = true;
+                            break;
                         }
                     }
                 }
+                Assert.assertTrue(findSink);
+            }
+
+            if (method.getName().equals("SinkCheckTest2")) {
+                boolean findSink = false;
+                for(List<List<Taint>> taintList : pathsMap.values()) {
+                    for (List<Taint> taints : taintList) {
+                        int size = taints.size();
+                        Taint sinkTaint = taints.get(size - 1);
+                        if (sinkTaint.getMethod().toString().contains("SinkCheckTest2")) {
+                            findSink = true;
+                            break;
+                        }
+                    }
+                }
+                Assert.assertFalse(findSink);
+            }
+
+            if (method.getName().equals("SinkCheckTest3")) {
+                boolean findSink = false;
+                for(List<List<Taint>> taintList : pathsMap.values()) {
+                    for (List<Taint> taints : taintList) {
+                        int size = taints.size();
+                        Taint sinkTaint = taints.get(size - 1);
+                        if (sinkTaint.getMethod().toString().contains("SinkCheckTest3")) {
+                            findSink = true;
+                            break;
+                        }
+                    }
+                }
+                Assert.assertTrue(findSink);
             }
         }
-         */
     }
 }
