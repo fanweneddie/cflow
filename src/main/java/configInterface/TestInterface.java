@@ -30,4 +30,12 @@ public class TestInterface implements ConfigInterface {
         return null;
     }
 
+    @Override
+    public boolean isTestSink(InvokeExpr iexpr) {
+        SootMethod callee = iexpr.getMethod();
+        if (callee.getName().contains("sink")) {
+            return true;
+        }
+        return false;
+    }
 }
