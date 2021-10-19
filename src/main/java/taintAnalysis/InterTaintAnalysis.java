@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import soot.*;
 import soot.jimple.Stmt;
+import soot.jimple.internal.JInstanceFieldRef;
 import taintAnalysis.pointsToAnalysis.MethodInfo;
 import taintAnalysis.pointsToAnalysis.PointsToAnalysis;
 import taintAnalysis.pointsToAnalysis.Summary;
@@ -79,7 +80,8 @@ public class InterTaintAnalysis {
 
         // do a pass of points-to analysis
         if (do_points_to) {
-            startPointsToAnalysis(methodList, globalMethodInfo, stmtStrCounter, countedStmtCache, uniqueStmtCache);
+            startPointsToAnalysis(methodList, globalMethodInfo,
+                    stmtStrCounter, countedStmtCache, uniqueStmtCache);
         }
 
         // Bootstrap for taint analysis
@@ -103,21 +105,21 @@ public class InterTaintAnalysis {
                                        Map<Stmt, Integer> countedStmtCache,
                                        Map<UniqueStmt, UniqueStmt> uniqueStmtCache) {
         logger.info("Start points-to analysis");
-        // get the body of main methods as entry
+        // get the body of all methods
         List<Body> bodyList = new ArrayList<>();
         for (SootMethod sm : methodList) {
             Body b = sm.retrieveActiveBody();
-            if (b.getMethod().toString().contains("void main(java.lang.String[])")) {
-                bodyList.add(b);
-            }
+            bodyList.add(b);
         }
 
-        // the maximal length of call string in context is set default as 5
-        int maxCallStringLen = 5;
+        // The maximal length of call string in context is set default as 10
+        int maxCallStringLen = 10;
 
-        // only analyze main() method as an entry method
-        // if there is an invoke statement, we then recursively analyze callee method
+        // Analyze main methods
         for (Body b : bodyList) {
+            if (globalMethodInfo.containsKey(b.getMethod())) {
+                continue;
+            }
             int argNum = b.getMethod().getParameterCount();
             Summary summary = new Summary(argNum + 2);
             MethodInfo methodInfo = new MethodInfo(summary);
@@ -126,6 +128,7 @@ public class InterTaintAnalysis {
                     stmtStrCounter, countedStmtCache, uniqueStmtCache, new HashSet<>());
             analysis.doAnalysis();
         }
+
 
         logger.info("Finished points-to analysis");
     }
@@ -147,6 +150,8 @@ public class InterTaintAnalysis {
                                     Map<String,Integer> stmtStrCounter,
                                     Map<Stmt, Integer> countedStmtCache,
                                     Map<UniqueStmt, UniqueStmt> uniqueStmtCache) {
+
+        Map<SootMethod, Map<JInstanceFieldRef, Boolean>> globalSinkRefUseInfo = new HashMap<>();
         int iter = 1;
         logger.info("iter {} in taint analysis", iter);
         List<Body> bodyList = new ArrayList<>();
@@ -158,7 +163,7 @@ public class InterTaintAnalysis {
             TaintFlowAnalysis analysis = new TaintFlowAnalysis(b,
                     sourceSinkManager, Taint.getEmptyTaint(),
                     taintMethodSummary, methodTaintCache, taintWrapper,
-                    use_points_to, globalMethodInfo,
+                    use_points_to, globalMethodInfo, globalSinkRefUseInfo,
                     stmtStrCounter, countedStmtCache, uniqueStmtCache);
             analysis.doAnalysis();
             sources.addAll(analysis.getSources());
@@ -177,7 +182,7 @@ public class InterTaintAnalysis {
                     TaintFlowAnalysis analysis = new TaintFlowAnalysis(b,
                             sourceSinkManager, entryTaint,
                             taintMethodSummary, methodTaintCache, taintWrapper,
-                            use_points_to, globalMethodInfo,
+                            use_points_to, globalMethodInfo, globalSinkRefUseInfo,
                             stmtStrCounter, countedStmtCache, uniqueStmtCache);
                     analysis.doAnalysis();
                     sinks.addAll(analysis.getSinks());
