@@ -620,21 +620,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                 }
                 // process taint and value based on how precise that taint taints value
                 if (callerValue != null && t.taints(callerValue)) {
-                    // Check whether t taints value precisely
-                    // 1. t taints a reference instance whose base is value
-                    if (t.taintsField(callerValue)) {
-                        JInstanceFieldRef callerValueRef = new JInstanceFieldRef(callerValue,
-                                t.getField().makeRef());
-                        FieldUseType useType = fieldUseChecker.checkUse(callerValueRef, sinkMethod, i);
-
-                        if (useType == FieldUseType.Must) {
-                            definiteTaints.add(t);
-                        }
-                    }
-                    // 2. t taints value precisely
-                    else {
                         definiteTaints.add(t);
-                    }
                 }
             }
         }
