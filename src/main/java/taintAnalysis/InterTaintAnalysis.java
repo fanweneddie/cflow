@@ -128,8 +128,6 @@ public class InterTaintAnalysis {
                     stmtStrCounter, countedStmtCache, uniqueStmtCache, new HashSet<>());
             analysis.doAnalysis();
         }
-
-
         logger.info("Finished points-to analysis");
     }
 
@@ -150,8 +148,12 @@ public class InterTaintAnalysis {
                                     Map<String,Integer> stmtStrCounter,
                                     Map<Stmt, Integer> countedStmtCache,
                                     Map<UniqueStmt, UniqueStmt> uniqueStmtCache) {
+        FieldUseChecker fieldUseChecker = new FieldUseChecker();
+        // For debugging
+        Set<Taint> mustNotUsedSinks = new HashSet<>();
+        Set<Taint> mayUseSinks = new HashSet<>();
 
-        Map<SootMethod, Map<JInstanceFieldRef, Boolean>> globalSinkRefUseInfo = new HashMap<>();
+        Map<SootMethod, Map<JInstanceFieldRef, Integer>> globalSinkRefUseInfo = new HashMap<>();
         int iter = 1;
         logger.info("iter {} in taint analysis", iter);
         List<Body> bodyList = new ArrayList<>();
@@ -164,7 +166,7 @@ public class InterTaintAnalysis {
                     sourceSinkManager, Taint.getEmptyTaint(),
                     taintMethodSummary, methodTaintCache, taintWrapper,
                     use_points_to, globalMethodInfo, globalSinkRefUseInfo,
-                    stmtStrCounter, countedStmtCache, uniqueStmtCache);
+                    stmtStrCounter, countedStmtCache, uniqueStmtCache, fieldUseChecker);
             analysis.doAnalysis();
             sources.addAll(analysis.getSources());
         }
@@ -183,9 +185,11 @@ public class InterTaintAnalysis {
                             sourceSinkManager, entryTaint,
                             taintMethodSummary, methodTaintCache, taintWrapper,
                             use_points_to, globalMethodInfo, globalSinkRefUseInfo,
-                            stmtStrCounter, countedStmtCache, uniqueStmtCache);
+                            stmtStrCounter, countedStmtCache, uniqueStmtCache, fieldUseChecker);
                     analysis.doAnalysis();
                     sinks.addAll(analysis.getSinks());
+                    mustNotUsedSinks.addAll(analysis.mustNotUsedSinks);
+                    mayUseSinks.addAll(analysis.mayUseSinks);
                     changed |= analysis.isChanged();
                 }
             }
@@ -194,6 +198,18 @@ public class InterTaintAnalysis {
         }
 
         logger.info("Found {} sinks reached from {} sources", sinks.size(), sources.size());
+
+        System.out.println(mustNotUsedSinks.size() + " sinks must not be used.");
+        for (Taint t : mustNotUsedSinks) {
+            System.out.println("-- Sink " + t.toString() + " along:");
+        }
+        System.out.println("-----------------------------------------------------------");
+
+        System.out.println(mayUseSinks.size() + " sinks may be used.");
+        for (Taint t : mayUseSinks) {
+            System.out.println("-- Sink " + t.toString() + " along:");
+        }
+        System.out.println("-----------------------------------------------------------");
     }
 
     public List<Taint> getSources() { return new ArrayList<>(sources); }
