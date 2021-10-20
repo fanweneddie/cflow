@@ -73,7 +73,7 @@ public class InterAnalysisTransformer extends SceneTransformer {
            sinks.addAll(pv.getSinks());
        }
        es.shutdown();
-
+        /*
        logger.info("Number of sinks reached by path reconstruction: {}", sinks.size());
         if (printResults) {
             logger.info("Printing results...");
@@ -93,6 +93,7 @@ public class InterAnalysisTransformer extends SceneTransformer {
                 System.out.println();
             }
         }
+         */
     }
 
     public Map<Taint, List<List<Taint>>> getPathsMap() {

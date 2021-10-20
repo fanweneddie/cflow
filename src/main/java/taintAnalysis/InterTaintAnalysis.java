@@ -201,7 +201,6 @@ public class InterTaintAnalysis {
 
         logger.info("Found {} sinks reached from {} sources", sinks.size(), sources.size());
         // For debugging
-        /*
         System.out.println(mustNotUsedSinks.size() + " sinks must not be used.");
         for (Taint t : mustNotUsedSinks) {
             System.out.println("-- Sink " + t.toString() + " along:");
@@ -219,7 +218,6 @@ public class InterTaintAnalysis {
             System.out.println("-- Sink " + t.toString() + " along:");
         }
         System.out.println("-----------------------------------------------------------");
-         */
     }
 
     public List<Taint> getSources() { return new ArrayList<>(sources); }
