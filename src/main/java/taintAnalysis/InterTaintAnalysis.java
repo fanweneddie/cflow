@@ -213,7 +213,7 @@ public class InterTaintAnalysis {
         }
         System.out.println("-----------------------------------------------------------");
 
-        System.out.println(mayUseSinks.size() + " sinks are unknown.");
+        System.out.println(unknownSinks.size() + " sinks are unknown.");
         for (Taint t : unknownSinks) {
             System.out.println("-- Sink " + t.toString() + " along:");
         }

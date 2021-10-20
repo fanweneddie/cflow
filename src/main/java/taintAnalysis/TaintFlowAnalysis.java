@@ -682,7 +682,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
             Taint sinkTaint = Taint.getTransferredTaintFor(
                     taint, taint.getPlainValue(), uniqueStmt, method, currTaintCache);
             taint.removeSuccessor(sinkTaint);
-            unknownTaints.add(sinkTaint);
+            unknownUseSinks.add(sinkTaint);
         }
 
         for (Taint taint : impossibleTaints) {
