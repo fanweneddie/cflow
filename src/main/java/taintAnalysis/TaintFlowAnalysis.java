@@ -270,7 +270,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                     // get a new taint whose transfer type is assign
                     else {
                         newTaint = Taint.getTransferredTaintFor(
-                                t, leftOp, uniqueStmt, method, currTaintCache, Taint.TransferType.Assign);
+                                t, leftOp, uniqueStmt, method, currTaintCache, Taint.TransferType.None);
                     }
                     out.add(newTaint);
                 }
@@ -381,7 +381,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                 if (base != null && t.taints(base)) {
                     killSet.add(t);
                     genCalleeEntryTaints(t, calleeThisLocal, uniqueStmt, calleeSummary,
-                            calleeTaintCache, summary, callee, Taint.TransferType.Call_baseObject);
+                            calleeTaintCache, summary, callee);
                 }
 
                 // Process parameters
@@ -394,7 +394,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                         }
                         Local calleeParam = calleeBody.getParameterLocal(i);
                         genCalleeEntryTaints(t, calleeParam, uniqueStmt, calleeSummary,
-                                calleeTaintCache, summary, callee, Taint.TransferType.Call_parameter);
+                                calleeTaintCache, summary, callee);
                     }
                 }
             }
@@ -403,20 +403,20 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
             // Process base object
             if (base != null) {
                 Set<Taint> baseTaints = summary.get(0);
-                genSet.addAll(getTaintsFromInvokeSummary(baseTaints, base, uniqueStmt, Taint.TransferType.Return_baseObject));
+                genSet.addAll(getTaintsFromInvokeSummary(baseTaints, base, uniqueStmt));
             }
 
             // Process return value
             if (retVal != null) {
                 Set<Taint> retTaints = summary.get(1);
-                genSet.addAll(getTaintsFromInvokeSummary(retTaints, retVal, uniqueStmt, Taint.TransferType.Return_retVal));
+                genSet.addAll(getTaintsFromInvokeSummary(retTaints, retVal, uniqueStmt));
             }
 
             // Process parameters
             for (int i = 0; i < invoke.getArgCount(); i++) {
                 Value arg = invoke.getArg(i);
                 Set<Taint> argTaints = summary.get(2 + i);
-                genSet.addAll(getTaintsFromInvokeSummary(argTaints, arg, uniqueStmt, Taint.TransferType.Return_parameter));
+                genSet.addAll(getTaintsFromInvokeSummary(argTaints, arg, uniqueStmt));
             }
         }
 
@@ -452,22 +452,21 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
      * @param calleeTaintCache  the cache that stores the taint in callee
      * @param summary           the taint set summary of callee taint
      * @param callee            the callee method
-     * @param callType          the taint transfer type for call(Call_parameter or Call_baseObject)
      */
     private void genCalleeEntryTaints(Taint t, Value calleeVal, UniqueStmt uniqueStmt,
                                       Map<Taint, List<Set<Taint>>> calleeSummary,
                                       Map<Taint, Taint> calleeTaintCache,
                                       List<Set<Taint>> summary,
-                                      SootMethod callee, Taint.TransferType callType) {
+                                      SootMethod callee) {
         // Generate caller taint at call site
         Taint callerTaint = Taint.getTransferredTaintFor(
-                t, t.getPlainValue(), uniqueStmt, method, currTaintCache, callType);
+                t, t.getPlainValue(), uniqueStmt, method, currTaintCache, Taint.TransferType.Call);
 
         // Send caller taint to callee
         PhantomIdentityStmt phantomIdentityStmt = PhantomIdentityStmt.getInstance(callee);
         UniqueStmt uniquePhantomIdentityStmt = generateUniqueStmt(phantomIdentityStmt);
         Taint calleeTaint = Taint.getTransferredTaintFor(
-                callerTaint, calleeVal, uniquePhantomIdentityStmt, callee, calleeTaintCache, Taint.TransferType.None);
+                callerTaint, calleeVal, uniquePhantomIdentityStmt, callee, calleeTaintCache);
 
         // Receive callee taint summary for the sent caller taint
         if (calleeSummary.containsKey(calleeTaint)) {
@@ -491,18 +490,16 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
      * @param taints        the set of taints in callee
      * @param callerVal     the value at return site in caller
      * @param uniqueStmt    the statement at return site in caller
-     * @param returnType    the taint transfer type for return(Return_parameter, Return_retVal, Return_baseObject)
      * @return              the set of taints at return site in caller
      */
-    private Set<Taint> getTaintsFromInvokeSummary(Set<Taint> taints, Value callerVal,
-                                                  UniqueStmt uniqueStmt, Taint.TransferType returnType) {
+    private Set<Taint> getTaintsFromInvokeSummary(Set<Taint> taints, Value callerVal, UniqueStmt uniqueStmt) {
         Set<Taint> out = new HashSet<>();
         if (callerVal instanceof NullConstant) {
             return out;
         }
         for (Taint t : taints) {
             Taint callerTaint = Taint.getTransferredTaintFor(
-                    t, callerVal, uniqueStmt, method, currTaintCache, returnType);
+                    t, callerVal, uniqueStmt, method, currTaintCache, Taint.TransferType.Return);
             out.add(callerTaint);
         }
         return out;
@@ -581,7 +578,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
             // Process base object
             if (base != null && t.taints(base)) {
                 Taint sinkTaint = Taint.getTransferredTaintFor(
-                        t, t.getPlainValue(), uniqueStmt, method, currTaintCache, Taint.TransferType.Call_baseObject);
+                        t, t.getPlainValue(), uniqueStmt, method, currTaintCache);
                 sinkTaint.setSink();
                 sinks.add(sinkTaint);
             }
@@ -591,7 +588,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                 Value arg = invoke.getArg(i);
                 if (t.taints(arg)) {
                     Taint sinkTaint = Taint.getTransferredTaintFor(
-                            t, t.getPlainValue(), uniqueStmt, method, currTaintCache, Taint.TransferType.Call_parameter);
+                            t, t.getPlainValue(), uniqueStmt, method, currTaintCache);
                     sinkTaint.setSink();
                     sinks.add(sinkTaint);
                 }

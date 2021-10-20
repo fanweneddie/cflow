@@ -14,20 +14,9 @@ public class Taint {
      * The type of taint transfer, which shows how this taint is generated
      */
     public enum TransferType {
-        // by assignment
-        Assign,
-        // by passing parameter in method call
-        Call_parameter,
-        // by passing base object in method call
-        Call_baseObject,
-        // by passing object-typed parameter in method return
-        Return_parameter,
-        // by passing return value in method return
-        Return_retVal,
-        // by passing base object in method return
-        Return_baseObject,
-        // default type
-        None
+        None,
+        Call,
+        Return
     }
 
     // an emptyTaint without any info, simply for a default taint
