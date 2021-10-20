@@ -15,6 +15,14 @@ class A2 {
     public void sink1() {
         System.out.println(f);
     }
+
+    public void sink2() {
+        sink1();
+    }
+
+    public void sink3() {
+        sink2();
+    }
 }
 
 class B2 extends A2 {
