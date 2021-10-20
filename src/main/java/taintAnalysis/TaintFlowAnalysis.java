@@ -81,14 +81,6 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
     // For testing whether a taint should be propagated into sink
     private final FieldUseChecker fieldUseChecker;
 
-    /*
-    // For testing
-    // Original sink taints that must not be used in sink
-    public final Set<Taint> mustNotUsedSinks;
-    // Original sink taints that may be used in sink due to further method call
-    public final Set<Taint> mayUseSinks;
-     */
-
     public TaintFlowAnalysis(Body body, ISourceSinkManager sourceSinkManager) {
         this(body, sourceSinkManager, Taint.getEmptyTaint(), new HashMap<>(),
                 new HashMap<>(), null, false, new HashMap<>(), new HashMap<>(),
@@ -657,7 +649,6 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
             sinkTaint.setSink();
             sinks.add(sinkTaint);
         }
-
     }
 
     /**

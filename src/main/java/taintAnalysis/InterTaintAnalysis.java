@@ -149,7 +149,6 @@ public class InterTaintAnalysis {
                                     Map<Stmt, Integer> countedStmtCache,
                                     Map<UniqueStmt, UniqueStmt> uniqueStmtCache) {
         FieldUseChecker fieldUseChecker = new FieldUseChecker();
-
         Map<SootMethod, Map<JInstanceFieldRef, Integer>> globalSinkRefUseInfo = new HashMap<>();
         int iter = 1;
         logger.info("iter {} in taint analysis", iter);
