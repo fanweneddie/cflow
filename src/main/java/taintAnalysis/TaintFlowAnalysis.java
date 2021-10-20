@@ -140,13 +140,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         this.stmtStrCounter = stmtStrCounter;
         this.countedStmtCache = countedStmtCache;
         this.uniqueStmtCache = uniqueStmtCache;
-
         this.fieldUseChecker = fieldUseChecker;
-        // For testing
-        /*
-        mustNotUsedSinks = new HashSet<>();
-        mayUseSinks = new HashSet<>();
-        */
 
         // Sanity check
         assertNotNull(body);
@@ -621,8 +615,6 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
 
         // The taints that definitely should be propagated into sink
         Set<Taint> definiteTaints = new HashSet<>();
-        Set<Taint> possibleTaints = new HashSet<>();
-        Set<Taint> impossibleTaints = new HashSet<>();
 
         for (Taint t : in) {
             for (int i = -1; i < invoke.getArgCount(); i++) {
@@ -645,10 +637,6 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
 
                         if (useType == FieldUseType.Must) {
                             definiteTaints.add(t);
-                        } else if (useType == FieldUseType.May) {
-                            possibleTaints.add(t);
-                        } else {
-                            impossibleTaints.add(t);
                         }
                     }
                     // 2. t taints value precisely
@@ -670,22 +658,6 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
             sinks.add(sinkTaint);
         }
 
-        // For debug, check the possible and impossible sink taints
-        /*
-        for (Taint taint : possibleTaints) {
-            Taint sinkTaint = Taint.getTransferredTaintFor(
-                    taint, taint.getPlainValue(), uniqueStmt, method, currTaintCache);
-            taint.removeSuccessor(sinkTaint);
-            mayUseSinks.add(sinkTaint);
-        }
-
-        for (Taint taint : impossibleTaints) {
-            Taint sinkTaint = Taint.getTransferredTaintFor(
-                    taint, taint.getPlainValue(), uniqueStmt, method, currTaintCache);
-            taint.removeSuccessor(sinkTaint);
-            mustNotUsedSinks.add(sinkTaint);
-        }
-         */
     }
 
     /**
