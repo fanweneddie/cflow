@@ -151,6 +151,36 @@ public class PointsToAnalysisTest extends TaintAnalysisTest {
                 }
                 Assert.assertTrue(findSink);
             }
+
+            if (method.getName().equals("SinkCheckTest4")) {
+                boolean findSink = false;
+                for(List<List<Taint>> taintList : pathsMap.values()) {
+                    for (List<Taint> taints : taintList) {
+                        int size = taints.size();
+                        Taint sinkTaint = taints.get(size - 1);
+                        if (sinkTaint.getMethod().toString().contains("SinkCheckTest4")) {
+                            findSink = true;
+                            break;
+                        }
+                    }
+                }
+                Assert.assertTrue(findSink);
+            }
+
+            if (method.getName().equals("SinkCheckTest5")) {
+                boolean findSink = false;
+                for(List<List<Taint>> taintList : pathsMap.values()) {
+                    for (List<Taint> taints : taintList) {
+                        int size = taints.size();
+                        Taint sinkTaint = taints.get(size - 1);
+                        if (sinkTaint.getMethod().toString().contains("SinkCheckTest5")) {
+                            findSink = true;
+                            break;
+                        }
+                    }
+                }
+                Assert.assertFalse(findSink);
+            }
         }
     }
 }
