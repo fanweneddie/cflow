@@ -277,6 +277,10 @@ public class Taint {
         this.successors.add(successor);
     }
 
+    public void removeSuccessor(Taint successor) {
+        this.successors.remove(successor);
+    }
+
     public TransferType getTransferType() {
         return transferType;
     }
