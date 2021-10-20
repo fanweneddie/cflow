@@ -4,7 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import soot.*;
 import soot.jimple.*;
-import soot.jimple.internal.JInstanceFieldRef;
+import soot.jimple.internal.*;
 import soot.jimple.toolkits.callgraph.CallGraph;
 import soot.jimple.toolkits.callgraph.Edge;
 import soot.toolkits.graph.ExceptionalUnitGraph;
@@ -70,7 +70,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
     // It is null if we disable use_points_to
     private final MethodInfo currMethodInfo;
     // The instance reference use info for all sink methods
-    private final Map<SootMethod, Map<JInstanceFieldRef, Boolean>> globalSinkRefUseInfo;
+    private final Map<SootMethod, Map<JInstanceFieldRef, Integer>> globalSinkRefUseInfo;
     // Three data structures below are used for the initialization of uniqueStmt
     // It stores the overall count number of string of each statement
     private final Map<String, Integer> stmtStrCounter;
@@ -78,11 +78,18 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
     private final Map<Stmt, Integer> countedStmtCache;
     // It stores the generated UniqueStmt(in order to reduce repetitious object generation)
     private final Map<UniqueStmt, UniqueStmt> uniqueStmtCache;
+    // For testing whether a taint should be propagated into sink
+    private final FieldUseChecker fieldUseChecker;
+    // For testing
+    // Original sink taints that must not be used in sink
+    public final Set<Taint> mustNotUsedSinks;
+    // Original sink taints that may be used in sink due to further method call
+    public final Set<Taint> mayUseSinks;
 
     public TaintFlowAnalysis(Body body, ISourceSinkManager sourceSinkManager) {
         this(body, sourceSinkManager, Taint.getEmptyTaint(), new HashMap<>(),
                 new HashMap<>(), null, false, new HashMap<>(), new HashMap<>(),
-                new HashMap<>(), new HashMap<>(), new HashMap<>());
+                new HashMap<>(), new HashMap<>(), new HashMap<>(), new FieldUseChecker());
     }
 
     /** The constructor for intra-procedural analysis */
@@ -94,7 +101,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                              ITaintWrapper taintWrapper) {
         this(body, sourceSinkManager, entryTaint, methodSummary, methodTaintCache,
                 taintWrapper, false, new HashMap<>(), new HashMap<>(),
-                new HashMap<>(), new HashMap<>(), new HashMap<>());
+                new HashMap<>(), new HashMap<>(), new HashMap<>(), new FieldUseChecker());
     }
 
     /**
@@ -108,10 +115,11 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                              ITaintWrapper taintWrapper,
                              boolean use_points_to,
                              Map<SootMethod, MethodInfo> globalMethodInfo,
-                             Map<SootMethod, Map<JInstanceFieldRef, Boolean>> globalSinkRefUseInfo,
+                             Map<SootMethod, Map<JInstanceFieldRef, Integer>> globalSinkRefUseInfo,
                              Map<String, Integer> stmtStrCounter,
                              Map<Stmt, Integer> countedStmtCache,
-                             Map<UniqueStmt, UniqueStmt> uniqueStmtCache) {
+                             Map<UniqueStmt, UniqueStmt> uniqueStmtCache,
+                             FieldUseChecker fieldUseChecker) {
         super(new ExceptionalUnitGraph(body));
         this.body = body;
         this.method = body.getMethod();
@@ -129,6 +137,10 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         this.stmtStrCounter = stmtStrCounter;
         this.countedStmtCache = countedStmtCache;
         this.uniqueStmtCache = uniqueStmtCache;
+
+        this.fieldUseChecker = fieldUseChecker;
+        mustNotUsedSinks = new HashSet<>();
+        mayUseSinks = new HashSet<>();
 
         // Sanity check
         assertNotNull(body);
@@ -595,35 +607,16 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         if (!stmt.containsInvokeExpr()) return;
         InvokeExpr invoke = stmt.getInvokeExpr();
         SootMethod sinkMethod = getPreciseCalleeMethod(uniqueStmt, invoke);
-        Body sinkBody = null;
-        if (sinkMethod.hasActiveBody()) {
-            sinkBody = sinkMethod.getActiveBody();
-        }
 
         Value base = null;
         if (invoke instanceof InstanceInvokeExpr) {
             base = ((InstanceInvokeExpr) invoke).getBase();
         }
 
-        // Get the summary of reference use for sink method
-        Map<JInstanceFieldRef, Boolean> sinkRefUseSummary;
-        if (globalSinkRefUseInfo.containsKey(sinkMethod)) {
-            sinkRefUseSummary = globalSinkRefUseInfo.get(sinkMethod);
-        } else {
-            sinkRefUseSummary = new HashMap<>();
-            globalSinkRefUseInfo.put(sinkMethod, sinkRefUseSummary);
-        }
-
-        // For taints whose tainted value may be used in sink callee
-        // (those taints should be propagated based on whether they are used in sink)
-        // potentialTaints stores the instanceRef they taint in sink callee
-        // fieldIsUsed records whether each instanceRef is used in sink callee
-        Map<Taint, JInstanceFieldRef> potentialTaints = new HashMap<>();
-        Map<JInstanceFieldRef, Boolean> fieldIsUsed = new HashMap<>();
-        // For taints whose tainted value must be used in sink callee
-        // (So they should be propagated),
-        // definiteTaints stores them
+        // The taints that definitely should be propagated into sink
         Set<Taint> definiteTaints = new HashSet<>();
+        Set<Taint> possibleTaints = new HashSet<>();
+        Set<Taint> impossibleTaints = new HashSet<>();
 
         for (Taint t : in) {
             for (int i = -1; i < invoke.getArgCount(); i++) {
@@ -639,95 +632,25 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                 if (callerValue != null && t.taints(callerValue)) {
                     // Check whether t taints value precisely
                     // 1. t taints a reference instance whose base is value
-                    // We will double-check whether taints in potentialTaints
-                    // can be propagated into sink later
                     if (t.taintsField(callerValue)) {
-                        // We only consider propagating the taint when we can
-                        // analyze whether the field ref is used in callee
-                        if (sinkBody != null) {
-                            // callerValue can be base or parameter(at caller side),
-                            // and it is a simple ref.
-                            Value calleeValue;
-                            if (i == -1) {
-                                calleeValue = sinkBody.getThisLocal();
-                            } else {
-                                calleeValue = sinkBody.getParameterLocal(i);
-                            }
-                            // Generate the field reference in callee and record it
-                            JInstanceFieldRef ref = new JInstanceFieldRef(calleeValue, t.getField().makeRef());
-                            // Check whether ref is used in sink from summary
-                            // 1. No record, we should check the use of ref later
-                            if (!sinkRefUseSummary.containsKey(ref)) {
-                                potentialTaints.put(t, ref);
-                                fieldIsUsed.put(ref, Boolean.FALSE);
-                            }
-                            // 2. The ref must be used in sink callee
-                            // So we should propagate the taint later
-                            else if (sinkRefUseSummary.containsKey(ref)) {
-                                if (sinkRefUseSummary.get(ref) == Boolean.TRUE) {
-                                    definiteTaints.add(t);
-                                } else {
-                                    Taint sinkTaint = Taint.getTransferredTaintFor(
-                                            t, t.getPlainValue(), uniqueStmt, method, currTaintCache);
-                                }
-                            }
+                        JInstanceFieldRef callerValueRef = new JInstanceFieldRef(callerValue,
+                                t.getField().makeRef());
+                        FieldUseType useType = fieldUseChecker.checkUse(callerValueRef, sinkMethod, i);
+
+                        if (useType == FieldUseType.Must) {
+                            definiteTaints.add(t);
+                        } else if (useType == FieldUseType.May) {
+                            possibleTaints.add(t);
                         } else {
-                            Taint sinkTaint = Taint.getTransferredTaintFor(
-                                    t, t.getPlainValue(), uniqueStmt, method, currTaintCache);
+                            impossibleTaints.add(t);
                         }
                     }
                     // 2. t taints value precisely
-                    // So we should propagate the taint later
-                    // (We propose that value object will be used in sink)
                     else {
                         definiteTaints.add(t);
                     }
                 }
             }
-        }
-
-
-
-        // Process potentialTaints
-        if (sinkBody != null && !fieldIsUsed.isEmpty()) {
-            // Leverage use boxes to do a flow-insensitive intra-procedural analysis
-            List<ValueBox> useBoxes = sinkBody.getUseBoxes();
-            for (ValueBox valueBox : useBoxes) {
-                // The used value in sink method
-                // Check whether fieldUseInfo has that value.
-                // If so, mark it as true.
-                Value useValue = valueBox.getValue();
-                if (useValue instanceof JInstanceFieldRef) {
-                    JInstanceFieldRef usedInstanceRef = (JInstanceFieldRef) useValue;
-                    for (JInstanceFieldRef InstanceRef : fieldIsUsed.keySet() ) {
-                        if (usedInstanceRef.equivTo(InstanceRef)) {
-                            fieldIsUsed.put(InstanceRef, Boolean.TRUE);
-                        }
-                    }
-                } else if (useValue instanceof Ref) {
-                    for (JInstanceFieldRef InstanceRef : fieldIsUsed.keySet() ) {
-                        if (useValue.equivTo(InstanceRef.getBase())) {
-                            fieldIsUsed.put(InstanceRef, Boolean.TRUE);
-                        }
-                    }
-                }
-
-            }
-
-            // Add sink taint if the ref is used in the method
-            for (Map.Entry<Taint, JInstanceFieldRef> entry : potentialTaints.entrySet()) {
-                Taint taint = entry.getKey();
-                JInstanceFieldRef ref = entry.getValue();
-                if (fieldIsUsed.get(ref) == Boolean.TRUE) {
-                    definiteTaints.add(taint);
-                } else {
-                    Taint sinkTaint = Taint.getTransferredTaintFor(
-                            taint, taint.getPlainValue(), uniqueStmt, method, currTaintCache);
-                }
-            }
-
-            // Record fieldIsUsed into summary
-            sinkRefUseSummary.putAll(fieldIsUsed);
         }
 
         // Propagate taints into sink
@@ -739,6 +662,21 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
 
             sinkTaint.setSink();
             sinks.add(sinkTaint);
+        }
+
+        // For debug, check the possible and impossible sink taints
+        for (Taint taint : possibleTaints) {
+            Taint sinkTaint = Taint.getTransferredTaintFor(
+                    taint, taint.getPlainValue(), uniqueStmt, method, currTaintCache);
+            taint.removeSuccessor(sinkTaint);
+            mayUseSinks.add(sinkTaint);
+        }
+
+        for (Taint taint : impossibleTaints) {
+            Taint sinkTaint = Taint.getTransferredTaintFor(
+                    taint, taint.getPlainValue(), uniqueStmt, method, currTaintCache);
+            taint.removeSuccessor(sinkTaint);
+            mustNotUsedSinks.add(sinkTaint);
         }
     }
 
@@ -1008,5 +946,6 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         }
         return calleeMethod;
     }
+
 
 }
