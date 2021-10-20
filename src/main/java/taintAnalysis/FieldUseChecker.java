@@ -19,10 +19,12 @@ import java.util.Map;
 enum FieldUseType {
     // Must be used
     Must,
-    // Never be used
-    Never,
     // May be used
-    May
+    May,
+    // unknown to be used
+    Unknown,
+    // Never be used
+    Never
 }
 
 /**
@@ -70,8 +72,8 @@ public class FieldUseChecker {
 
         // We can't analyze the body of the method
         if (body == null) {
-            currUseInfo.put(ref, FieldUseType.May);
-            return FieldUseType.May;
+            currUseInfo.put(ref, FieldUseType.Unknown);
+            return FieldUseType.Unknown;
         }
 
         // callerValue can be base or parameter(at caller side),
@@ -95,6 +97,8 @@ public class FieldUseChecker {
         FieldUseType useType = FieldUseType.Never;
         // Marks whether the field may appear
         boolean mayAppearFlag = false;
+        // Marks whether the field is unknown to appear
+        boolean unknownFlag = false;
 
         // Leverage use boxes to do a flow-insensitive intra-procedural analysis
         List<ValueBox> useBoxes = body.getUseBoxes();
@@ -129,6 +133,8 @@ public class FieldUseChecker {
                         useType = FieldUseType.Must;
                     } else if (tempUseType == FieldUseType.May) {
                         mayAppearFlag = true;
+                    } else if (tempUseType == FieldUseType.Unknown) {
+                        unknownFlag = true;
                     }
                 }
                 // Check the usage of parameters recursively
@@ -142,6 +148,8 @@ public class FieldUseChecker {
                             useType = FieldUseType.Must;
                         } else if (tempUseType == FieldUseType.May) {
                             mayAppearFlag = true;
+                        } else if (tempUseType == FieldUseType.Unknown) {
+                            unknownFlag = true;
                         }
                     }
                 }
@@ -156,6 +164,8 @@ public class FieldUseChecker {
         if (useType != FieldUseType.Must) {
             if (mayAppearFlag) {
                 currUseInfo.put(ref, FieldUseType.May);
+            } else if(unknownFlag) {
+                currUseInfo.put(ref, FieldUseType.Unknown);
             } else {
                 currUseInfo.put(ref, FieldUseType.Never);
             }
