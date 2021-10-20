@@ -80,11 +80,14 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
     private final Map<UniqueStmt, UniqueStmt> uniqueStmtCache;
     // For testing whether a taint should be propagated into sink
     private final FieldUseChecker fieldUseChecker;
+
+    /*
     // For testing
     // Original sink taints that must not be used in sink
     public final Set<Taint> mustNotUsedSinks;
     // Original sink taints that may be used in sink due to further method call
     public final Set<Taint> mayUseSinks;
+     */
 
     public TaintFlowAnalysis(Body body, ISourceSinkManager sourceSinkManager) {
         this(body, sourceSinkManager, Taint.getEmptyTaint(), new HashMap<>(),
@@ -139,8 +142,11 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         this.uniqueStmtCache = uniqueStmtCache;
 
         this.fieldUseChecker = fieldUseChecker;
+        // For testing
+        /*
         mustNotUsedSinks = new HashSet<>();
         mayUseSinks = new HashSet<>();
+        */
 
         // Sanity check
         assertNotNull(body);
@@ -665,6 +671,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         }
 
         // For debug, check the possible and impossible sink taints
+        /*
         for (Taint taint : possibleTaints) {
             Taint sinkTaint = Taint.getTransferredTaintFor(
                     taint, taint.getPlainValue(), uniqueStmt, method, currTaintCache);
@@ -678,6 +685,7 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
             taint.removeSuccessor(sinkTaint);
             mustNotUsedSinks.add(sinkTaint);
         }
+         */
     }
 
     /**

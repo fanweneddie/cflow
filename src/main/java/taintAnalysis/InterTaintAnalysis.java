@@ -150,8 +150,10 @@ public class InterTaintAnalysis {
                                     Map<UniqueStmt, UniqueStmt> uniqueStmtCache) {
         FieldUseChecker fieldUseChecker = new FieldUseChecker();
         // For debugging
+        /*
         Set<Taint> mustNotUsedSinks = new HashSet<>();
         Set<Taint> mayUseSinks = new HashSet<>();
+        */
 
         Map<SootMethod, Map<JInstanceFieldRef, Integer>> globalSinkRefUseInfo = new HashMap<>();
         int iter = 1;
@@ -188,8 +190,8 @@ public class InterTaintAnalysis {
                             stmtStrCounter, countedStmtCache, uniqueStmtCache, fieldUseChecker);
                     analysis.doAnalysis();
                     sinks.addAll(analysis.getSinks());
-                    mustNotUsedSinks.addAll(analysis.mustNotUsedSinks);
-                    mayUseSinks.addAll(analysis.mayUseSinks);
+                    //mustNotUsedSinks.addAll(analysis.mustNotUsedSinks);
+                    //mayUseSinks.addAll(analysis.mayUseSinks);
                     changed |= analysis.isChanged();
                 }
             }
@@ -198,7 +200,8 @@ public class InterTaintAnalysis {
         }
 
         logger.info("Found {} sinks reached from {} sources", sinks.size(), sources.size());
-
+        // For debugging
+        /*
         System.out.println(mustNotUsedSinks.size() + " sinks must not be used.");
         for (Taint t : mustNotUsedSinks) {
             System.out.println("-- Sink " + t.toString() + " along:");
@@ -210,6 +213,7 @@ public class InterTaintAnalysis {
             System.out.println("-- Sink " + t.toString() + " along:");
         }
         System.out.println("-----------------------------------------------------------");
+         */
     }
 
     public List<Taint> getSources() { return new ArrayList<>(sources); }
