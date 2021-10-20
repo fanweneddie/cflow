@@ -152,6 +152,7 @@ public class InterTaintAnalysis {
         // For debugging
         Set<Taint> mustNotUsedSinks = new HashSet<>();
         Set<Taint> mayUseSinks = new HashSet<>();
+        Set<Taint> unknownSinks = new HashSet<>();
 
         Map<SootMethod, Map<JInstanceFieldRef, Integer>> globalSinkRefUseInfo = new HashMap<>();
         int iter = 1;
@@ -190,6 +191,7 @@ public class InterTaintAnalysis {
                     sinks.addAll(analysis.getSinks());
                     mustNotUsedSinks.addAll(analysis.mustNotUsedSinks);
                     mayUseSinks.addAll(analysis.mayUseSinks);
+                    unknownSinks.addAll(analysis.unknownUseSinks);
                     changed |= analysis.isChanged();
                 }
             }
@@ -207,6 +209,12 @@ public class InterTaintAnalysis {
 
         System.out.println(mayUseSinks.size() + " sinks may be used.");
         for (Taint t : mayUseSinks) {
+            System.out.println("-- Sink " + t.toString() + " along:");
+        }
+        System.out.println("-----------------------------------------------------------");
+
+        System.out.println(mayUseSinks.size() + " sinks are unknown.");
+        for (Taint t : unknownSinks) {
             System.out.println("-- Sink " + t.toString() + " along:");
         }
         System.out.println("-----------------------------------------------------------");

@@ -81,10 +81,12 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
     // For testing whether a taint should be propagated into sink
     private final FieldUseChecker fieldUseChecker;
     // For testing
-    // Original sink taints that must not be used in sink
-    public final Set<Taint> mustNotUsedSinks;
     // Original sink taints that may be used in sink due to further method call
     public final Set<Taint> mayUseSinks;
+    // Original sink taints that is unknown to be used in sink due to lack of method body
+    public final Set<Taint> unknownUseSinks;
+    // Original sink taints that must not be used in sink
+    public final Set<Taint> mustNotUsedSinks;
 
     public TaintFlowAnalysis(Body body, ISourceSinkManager sourceSinkManager) {
         this(body, sourceSinkManager, Taint.getEmptyTaint(), new HashMap<>(),
@@ -139,8 +141,9 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
         this.uniqueStmtCache = uniqueStmtCache;
 
         this.fieldUseChecker = fieldUseChecker;
-        mustNotUsedSinks = new HashSet<>();
         mayUseSinks = new HashSet<>();
+        unknownUseSinks = new HashSet<>();
+        mustNotUsedSinks = new HashSet<>();
 
         // Sanity check
         assertNotNull(body);
@@ -613,9 +616,10 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
             base = ((InstanceInvokeExpr) invoke).getBase();
         }
 
-        // The taints that definitely should be propagated into sink
+        // to record the current taints of different types
         Set<Taint> definiteTaints = new HashSet<>();
         Set<Taint> possibleTaints = new HashSet<>();
+        Set<Taint> unknownTaints = new HashSet<>();
         Set<Taint> impossibleTaints = new HashSet<>();
 
         for (Taint t : in) {
@@ -641,6 +645,8 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                             definiteTaints.add(t);
                         } else if (useType == FieldUseType.May) {
                             possibleTaints.add(t);
+                        } else if (useType == FieldUseType.Unknown) {
+                            unknownTaints.add(t);
                         } else {
                             impossibleTaints.add(t);
                         }
@@ -670,6 +676,13 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
                     taint, taint.getPlainValue(), uniqueStmt, method, currTaintCache);
             taint.removeSuccessor(sinkTaint);
             mayUseSinks.add(sinkTaint);
+        }
+
+        for (Taint taint : unknownTaints) {
+            Taint sinkTaint = Taint.getTransferredTaintFor(
+                    taint, taint.getPlainValue(), uniqueStmt, method, currTaintCache);
+            taint.removeSuccessor(sinkTaint);
+            unknownTaints.add(sinkTaint);
         }
 
         for (Taint taint : impossibleTaints) {
