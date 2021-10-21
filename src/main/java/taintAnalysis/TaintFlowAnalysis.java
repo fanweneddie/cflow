@@ -317,6 +317,8 @@ public class TaintFlowAnalysis extends ForwardFlowAnalysis<Unit, Set<Taint>> {
             }
         }
 
+        methods.sort(Comparator.comparing(SootMethod::toString));
+
         // Get the base object of this invocation in caller (if applies)
         Value base = null;
         if (invoke instanceof InstanceInvokeExpr) {
