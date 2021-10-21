@@ -281,9 +281,9 @@ public class Taint {
         if (isEmpty()) return "Empty Taint";
 
         String str = "";
-        //if (transferType != TransferType.None) {
-            //str += "[" + transferType + "] ";
-        //}
+        if (transferType != TransferType.None) {
+            str += "[" + transferType + "] ";
+        }
         str += plainValue + (field != null ? "." + field : "") +
                 " in " + uniqueStmt.getStmt() + " in method " + method;
 
