@@ -290,33 +290,6 @@ public class Taint {
         return str;
     }
 
-    /**
-     * a new way of showing a taint in string(in order to debug)
-     * The form of a taint is shown below:
-     * indent   object:
-     *          transfertype:
-     *          statement:      count:
-     *          method:
-     *
-     * @param indent: the indent to show the relation in activation record.
-     *
-     * @return
-     */
-    public String toStringNew(String indent) {
-        if (isEmpty()) return indent + "Empty Taint";
-
-        String str = "";
-        // line 1: shows the object of the taint
-        str = indent + "Object: " + plainValue + (field != null ? "." + field : "") + "\n";
-        // line 2: shows the transferType of the taint
-        str += indent + "Type:  " + transferType + "\n";
-        // line 3: shows the stmt and count of the uniqueStmt of taint
-        str += indent + "Stmt:  " + uniqueStmt.getStmt() + " at " + uniqueStmt.getCount() + "\n";
-        // line 4: shows the method of the taint
-        str += indent + "Method: " + method;
-        return str;
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
