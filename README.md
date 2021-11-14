@@ -15,7 +15,7 @@ mvn compile
 S3. Run the analysis.
 
 ```sh
-./run.sh -a hadoop_common [-i] [-s]
+./run.sh -a hadoop_common [-i] [-s] [-p]
 ```
 
 If the `-i` flag is enabled, only intra-procedural analysis in performed, used for testing only.
