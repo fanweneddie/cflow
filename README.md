@@ -1,6 +1,6 @@
 # cFlow: A Flow-based Configuration Analysis Framework
 
-cFlow is a flow-, field-, and context-sensitive static taint analysis framework for Java bytecode based clooud systems that tracks how configuration option values flow through a program from their loading points to the user-specified sink points where the values are used (e.g. an external API call), and can output the taint propagation path from the source to the sink. It could also be used as a generic static taint anaysis tool by providing your own definition of sources and sinks.
+cFlow is a flow-, field-, and context-sensitive static taint analysis framework for Java bytecode based cloud systems that tracks how configuration option values flow through a program from their loading points to the user-specified sink points where the values are used (e.g. an external API call), and can output the taint propagation path from the source to the sink. It could also be used as a generic static taint analysis tool by providing your own definition of sources and sinks.
 
 ## Use cFlow from the command line
 
@@ -21,6 +21,8 @@ S3. Run the analysis.
 If the `-i` flag is enabled, only intra-procedural analysis in performed, used for testing only.
 
 If the `-s` flag is enabled, the SPARK call graph toolkit is used to compute a more accurate call graph at the cost of longer running time and higher memory consumption.
+
+If the `-p` flag is enabled, cflow will do a points-to analysis to find a more precise callee.
 
 S4. Inspect the result.
 
@@ -99,12 +101,15 @@ It contains the following main modules:
 * `configInterface` package contains the configuration interface used to identify configuration loading/setting points; implementations for several cloud systems have already been provided.
 * `taintAnalysis` package contains the core module for static taint analysis:
   * `sourceSinkManger` subpackage contains the interface for defining sources/sinks and a default implementation of it;
-  * `taintWrapper` subpackage contains the interface for defining library modeling rules and a default implementation using herustic-based rules.
+  * `taintWrapper` subpackage contains the interface for defining library modeling rules and a default implementation using heuristic-based rules.
+  * `pointsToAnalysis` subpackage contains the classes for doing points-to analysis to get the type of object that each variable points to. This analysis aims to get a more precise callee, but the effect is not that good(Since polymorphism is a dynamic property of Java). 
   * `Taint.java` contains the implementation of the field-sensitive taint abstraction.
-  * `TaintFlowAnalysis.java` contains the implementaition for intra-procedural taint analysis, which extends the `ForwardFlowAnalysis` class in Soot.
-  * `InterTaintAnalysis.java` contains the implmentation for inter-procedural taint analysis.
+  * `TaintFlowAnalysis.java` contains the implementation for intra-procedural taint analysis, which extends the `ForwardFlowAnalysis` class in Soot.
+  * `InterTaintAnalysis.java` contains the implementation for inter-procedural taint analysis.
   * `PathVisitor.java` contains the implementation of a recursive realizable path visitor that traverses all the realizable taint propagation paths starting from a source taint. Mainly used for validation, and not enabled by default.
-  * `SourceSinkConnectionVisitor.java` containts the the implementation of a recursive realizable path reconstructor that reconstructs the realizable taint propagation paths between any source sink pair.
+  * `SourceSinkConnectionVisitor.java` contains the implementation of a recursive realizable path reconstructor that reconstructs the realizable taint propagation paths between any source sink pair.
+  * `UniqueStmt.java` contains the easy implementation of a statement with its flow information, which can make it distinctive in sorting.
+  * `FieldUseChecker.java` contains a checker that checks the use of a field in a sink method.
 * `utility` package contains `Config.java`, which specifies where to load the source code of the analyzed software. If the analyzed software is not supported by default, you should extend this file.
 
 ## Documents
@@ -112,8 +117,9 @@ It contains the following main modules:
 For more details of the design and implementation of cFlow:
 
 * [Report](doc/cflow_report.pdf)
-
 * [Design Slide](https://docs.google.com/presentation/d/1XluXB7bBepI0bVzGl3IhC9ecMd1SiP1sxXrHQZax10o/edit?usp=sharing)
+* [Optimization Report](doc/notes/report/optimization/optimization_report.pdf)
+* [Optimization Design Slide](doc/notes/report/optimization/Wen_Optimization.pdf)
 
 ## Resources
 
